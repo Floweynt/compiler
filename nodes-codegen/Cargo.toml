@@ -1,0 +1,8 @@
+[package]
+name = "nodes-codegen"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tree-sitter = "0.26.8"
+tree-sitter-nodes = { version = "0.1.0", path = "../tree-sitter-nodes" }

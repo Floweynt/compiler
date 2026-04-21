@@ -1,0 +1,22 @@
+[package]
+name = "backend"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bitflags = "2.11.1"
+logos = "0.16.1"
+malachite = "0.9.1"
+slice-dst = "1.6.0"
+slotmap = "1.1.1"
+smallvec = { version = "1.15.1", features = ["union"] }
+tree-sitter = "0.26.8"
+tree-sitter-hir = { version = "0.1.0", path = "tree-sitter-hir" }
+ts-utils = { version = "0.1.0", path = "ts-utils" }
+
+[build-dependencies]
+walkdir = "2.5.0"
+
+[workspace]
+resolver = "3"
+members = ["nodes-codegen", "tree-sitter-nodes", "tree-sitter-hir", "ts-utils"]

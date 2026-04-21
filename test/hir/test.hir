@@ -1,0 +1,10 @@
+declare internal @meow;
+
+define i32 @meow(i32 @a) {
+    var i32 @local;
+
+    ldc f32 3.1415926;
+    
+    push i32 @local;
+@local:
+}

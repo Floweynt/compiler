@@ -1,0 +1,149 @@
+// CFG node defs
+
+mod "nodes/cfg.nodes";
+mod "nodes/data.nodes";
+
+// The base CFGNode definition
+// The (implicit) control flow graph is defined by `CFGNode`s and `#ctrl` edges.
+node CFGNode : Node {
+    // The primary "parent" node
+    ins { parent: operand(#ctrl, types::ctrl)?; }
+
+    outs { ctrl: out(types::ctrl); }
+
+    // Whether the current node represents the start of a basic block
+    trait is_bb_start: @bool;
+}
+
+// The start node for a function definition.
+// Can contain any number of arguments, as output nodes.
+node StartNode : CFGNode {
+    constructor() {}
+
+    // Clear the parent node, StartNode has no parent.
+    ins { shadow parent {}; }
+
+    outs {
+        use ctrl;
+        mem: out(types::mem);
+        args: out(func::param_types)..;
+    }
+
+    let is_bb_start = true;
+}
+
+// A return node, this is chained together by stop node
+node RetNode : CFGNode {
+    ins {
+        mem: operand(1, #mem);
+        value: operand(2, #data, func::return_type);
+    }
+
+    let is_bb_start = false;
+}
+
+// The stop node, consumes all rets
+node StopNode : CFGNode {
+    constructor(rets: RetNode..) {
+        ins::rets = rets;
+    }
+
+    ins {
+        rets: operand(0.., #ctrl);
+    }
+
+    let is_bb_start = false;
+}
+
+// The merge of a bunch of controls
+node MergeNode : CFGNode {
+    constructor(ctrls: #ctrl..) {
+        ins::ctrls = ctrls;
+    }
+
+    ins {
+        // concept of a parent doesn't make sense for merge nodes
+        shadow parent {};
+        ctrls: operand(0.., #ctrl);
+    }
+}
+
+// An if node
+node IfNode : CFGNode {
+    ins {
+        condition: operand(1, #data);
+    }
+}
+
+node CProjNode : CFGNode {
+    constructor(if: IfNode) {
+        ins::parent = if;
+    }
+
+    ins {
+        limit(1);
+    }
+}
+
+// data node defs
+class DataNode : Node(#data) {
+    ins {
+        ctrl: operand(0, #ctrl_pin?);
+        operands: operand(1.., #data?);
+    }
+
+    trait is_phi: @bool;
+}
+ 
+node PhiNode : DataNode {
+    constructor(pin: #ctrl, operands: #data?..) {
+        ins::ctrl = pin;
+        ins::operands = operands;
+    } 
+
+    let is_phi = true;
+}
+
+class BinOpNode : DataNode {
+    constructor {
+        ins::ctrl = nullptr;
+    }
+
+    ins {
+        shadow operands {
+            rhs: operand(1, #data);
+            lhs: operand(2, #data);
+        }
+    }
+
+    trait commutes: @bool;
+    trait associates: @bool;
+}
+
+class BasicIntArithNode(alias: @str) : BinOpNode {
+    constructor(lhs: #data, rhs: #data) {
+        ins::lhs = lhs;
+        ins::rhs = rhs;
+    } 
+
+    type_check {
+        ins::lhs == ins::rhs;
+        is_int(ins::lhs);
+    }
+
+    outs {
+        result: out(0, #data, merge(typeof(ins::lhs), typeof(ins::rhs)));
+    }
+
+    let alias = alias;
+}
+
+// these are the "primitive" IR nodes
+// actual arith is internally lowered to "flag arith" nodes, which is then simplified (whenever possible)
+// this is done to make isel slightly easier
+node AddNode : BasicIntArithNode("+");
+node SubNode : BasicIntArithNode("-");
+node MulNode : BasicIntArithNode("*");
+node SDivNode : BasicIntArithNode("sdiv");
+node UDivNode : BasicIntArithNode("udiv");
+

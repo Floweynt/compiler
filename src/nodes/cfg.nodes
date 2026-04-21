@@ -1,0 +1,71 @@
+// the base of the CFGNode hierarchy
+class CFGNode : Node {
+    ins { parent: operand(#ctrl, type::ctrl)?; }
+    
+    outs { ctrl: out(types::ctrl)?; }
+
+    trait is_bb_start: @bool;
+}
+
+node StartNode : Node {
+    constructor() {}
+
+    ins { shadow parent {}; }
+
+    outs {
+        mem: out(types::mem);
+        args: out(func::param_types)..;
+    }
+}
+
+node RetNode : CFGNode {
+    ins {
+        mem: operand(#mem);
+        value: operand(#data, func::return_type);
+    }
+
+    let is_bb_start = false;
+}
+
+// The stop node, consumes all rets
+node StopNode : CFGNode {
+    constructor(rets: RetNode..) {
+        ins::rets = rets;
+    }
+
+    ins {
+        rets: operand(0.., #ctrl);
+    }
+
+    let is_bb_start = false;
+}
+
+// The merge of a bunch of controls
+node MergeNode : CFGNode {
+    constructor(ctrls: #ctrl..) {
+        ins::ctrls = ctrls;
+    }
+
+    ins {
+        // concept of a parent doesn't make sense for merge nodes
+        shadow parent {};
+        ctrls: operand(0.., #ctrl);
+    }
+}
+
+// An if node
+node IfNode : CFGNode {
+    ins {
+        condition: operand(1, #data);
+    }
+}
+
+node CProjNode : CFGNode {
+    constructor(if: IfNode) {
+        ins::parent = if;
+    }
+
+    ins {
+        limit(1);
+    }
+}
