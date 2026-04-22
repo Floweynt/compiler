@@ -65,7 +65,7 @@ impl Module {
         &mut self,
         sym: SymbolHandle,
         cconv: CallingConvention,
-        args: Box<[FunctionParameter]>,
+        params: Box<[FunctionParameter]>,
         return_ty: ValueType,
         body: FunctionBody,
     ) -> Result<(FunctionHandle, &mut Function), DefineError> {
@@ -78,7 +78,7 @@ impl Module {
         let key = self.function_defs.insert(Function {
             sym,
             cconv,
-            args,
+            params,
             return_ty,
             body,
         });

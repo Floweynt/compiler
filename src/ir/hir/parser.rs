@@ -2,7 +2,13 @@ use std::{iter, num::NonZero};
 
 use tree_sitter::{Language, LanguageError, Node, Tree};
 
-use crate::ir::{Module, sym::LinkageType, types::ValueType};
+use crate::ir::{
+    Module,
+    function::{CallingConvention, FunctionBody, FunctionParameter},
+    hir::code::{HirFunctionBody, HirLocal},
+    sym::LinkageType,
+    types::ValueType,
+};
 
 pub struct Parser {
     parser: tree_sitter::Parser,
@@ -14,6 +20,7 @@ pub struct Parser {
     visibility_field_id: u16,
     name_field_id: u16,
     return_type_field_id: u16,
+    type_field_id: u16,
     param_type_field_id: u16,
     param_name_field_id: u16,
     vars_field_id: u16,
@@ -22,10 +29,12 @@ pub struct Parser {
 
 pub enum DiagnosticKind {
     Redeclare,
+    Redefine,
     Undeclared,
     BadTypeUnknown,
     BadTypeIntParseWidth,
     BadTypeIntZeroWidth,
+    RedeclareVariable,
 }
 
 pub struct SourceLocation {
@@ -41,7 +50,7 @@ pub struct Diagnostic {
 
 impl Diagnostic {
     pub fn make(node: Node<'_>, kind: DiagnosticKind) -> Self {
-        return Self {
+        Self {
             kind,
             range: (
                 SourceLocation {
@@ -55,7 +64,7 @@ impl Diagnostic {
                     col: node.end_position().column,
                 },
             ),
-        };
+        }
     }
 }
 
@@ -92,6 +101,7 @@ impl Parser {
             visibility_field_id: lang.field_id_for_name("visibility").unwrap().into(),
             name_field_id: lang.field_id_for_name("name").unwrap().into(),
             return_type_field_id: lang.field_id_for_name("return_type").unwrap().into(),
+            type_field_id: lang.field_id_for_name("type").unwrap().into(),
             param_type_field_id: lang.field_id_for_name("param_type").unwrap().into(),
             param_name_field_id: lang.field_id_for_name("param_name").unwrap().into(),
             vars_field_id: lang.field_id_for_name("vars").unwrap().into(),
@@ -150,7 +160,9 @@ impl Parser {
     fn parse_type(node: Node, src: &str) -> Result<ValueType, Diagnostic> {
         match Self::utf8_text(node, src) {
             x if x.starts_with(b"i") => {
-                let width = u32::from_str_radix(str::from_utf8(&x[1..]).unwrap(), 10)
+                let width = str::from_utf8(&x[1..])
+                    .unwrap()
+                    .parse::<u32>()
                     .map_err(|_| Diagnostic::make(node, DiagnosticKind::BadTypeIntParseWidth))?;
 
                 Ok(ValueType::Int {
@@ -175,7 +187,7 @@ impl Parser {
         let mut diag = DiagnosticReporter(Vec::new());
 
         // just give me a few temp cursor
-        let mut inner_cur_type = tree.walk();
+        let mut inner_cur = tree.walk();
         let mut inner_cur_name = tree.walk();
 
         // build module
@@ -199,8 +211,9 @@ impl Parser {
             } else if id == self.define_var_node_id {
                 todo!()
             } else if id == self.define_fun_node_id {
-                let node_name = top_level.child_by_field_id(self.name_field_id).unwrap();
-                let name = String::from_utf8(Self::utf8_text(node_name, src).to_vec()).unwrap();
+                let name_node = top_level.child_by_field_id(self.name_field_id).unwrap();
+                let name = String::from_utf8(Self::utf8_text(name_node, src).to_vec()).unwrap();
+                let mut body = HirFunctionBody::new();
 
                 let return_type = match Self::parse_type(
                     top_level
@@ -209,35 +222,80 @@ impl Parser {
                     src,
                 ) {
                     Ok(x) => x,
-                    Err(e) => {
-                        diag.add(e);
+                    Err(err) => {
+                        diag.add(err);
                         continue;
                     }
                 };
 
-                println!("{name}");
+                let mut params = Vec::new();
 
-                println!("{:?}", return_type);
-
-                for (ty, name) in iter::zip(
+                for (ty, param_name_node) in iter::zip(
                     top_level.children_by_field_id(
                         NonZero::new(self.param_type_field_id).unwrap(),
-                        &mut inner_cur_type,
+                        &mut inner_cur,
                     ),
                     top_level.children_by_field_id(
                         NonZero::new(self.param_name_field_id).unwrap(),
                         &mut inner_cur_name,
                     ),
                 ) {
-                    
+                    let ty = match Self::parse_type(ty, src) {
+                        Ok(x) => x,
+                        Err(err) => {
+                            diag.add(err);
+                            continue;
+                        }
+                    };
+
+                    let param_name =
+                        String::from_utf8(Self::utf8_text(param_name_node, src).to_vec()).unwrap();
+
+                    params.push(FunctionParameter::new(param_name.clone(), ty));
+
+                    if body.define_local(param_name, ty).is_err() {
+                        diag.report(param_name_node, DiagnosticKind::RedeclareVariable);
+                    }
                 }
 
                 let Some(sym) = module.get_symbol(&name) else {
-                    diag.report(node_name, DiagnosticKind::Undeclared);
+                    diag.report(name_node, DiagnosticKind::Undeclared);
                     continue;
                 };
 
-                // module.define_function(sym, CallingConvention::C, return_ty, body);
+                for var_decl in top_level
+                    .children_by_field_id(NonZero::new(self.vars_field_id).unwrap(), &mut inner_cur)
+                {
+                    let ty = var_decl.child_by_field_id(self.type_field_id).unwrap();
+                    let name_node = var_decl.child_by_field_id(self.name_field_id).unwrap();
+
+                    let ty = match Self::parse_type(ty, src) {
+                        Ok(x) => x,
+                        Err(err) => {
+                            diag.add(err);
+                            continue;
+                        }
+                    };
+
+                    let name = String::from_utf8(Self::utf8_text(name_node, src).to_vec()).unwrap();
+
+                    if body.define_local(name, ty).is_err() {
+                        diag.report(name_node, DiagnosticKind::RedeclareVariable);
+                    }
+                }
+
+                if module
+                    .define_function(
+                        sym,
+                        CallingConvention::C,
+                        params.into_boxed_slice(),
+                        return_type,
+                        FunctionBody::Hir(body),
+                    )
+                    .is_err()
+                {
+                    diag.report(name_node, DiagnosticKind::Redefine);
+                }
 
                 todo!()
             } else {

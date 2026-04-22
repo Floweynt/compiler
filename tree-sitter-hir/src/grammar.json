@@ -239,34 +239,36 @@
           "value": "{"
         },
         {
-          "type": "FIELD",
-          "name": "vars",
+          "type": "REPEAT",
           "content": {
-            "type": "REPEAT",
-            "content": {
-              "type": "SYMBOL",
-              "name": "var_decl"
-            }
-          }
-        },
-        {
-          "type": "FIELD",
-          "name": "body",
-          "content": {
-            "type": "REPEAT",
-            "content": {
-              "type": "CHOICE",
-              "members": [
-                {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "FIELD",
+                "name": "vars",
+                "content": {
                   "type": "SYMBOL",
-                  "name": "instruction"
-                },
-                {
-                  "type": "SYMBOL",
-                  "name": "label"
+                  "name": "var_decl"
                 }
-              ]
-            }
+              },
+              {
+                "type": "FIELD",
+                "name": "body",
+                "content": {
+                  "type": "CHOICE",
+                  "members": [
+                    {
+                      "type": "SYMBOL",
+                      "name": "instruction"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "label"
+                    }
+                  ]
+                }
+              }
+            ]
           }
         },
         {

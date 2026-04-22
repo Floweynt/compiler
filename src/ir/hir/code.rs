@@ -72,4 +72,8 @@ impl HirFunctionBody {
             bb: NamedContainer::new(),
         }
     }
+
+    pub fn define_local(&mut self, name: String, ty: ValueType) -> Result<LvtRef, LvtRef> {
+        self.lvt.define(name.clone(), || HirLocal { name, ty })
+    }
 }

@@ -55,11 +55,13 @@ export default grammar({
                 ), 
             ")",
             "{",
-                field("vars", repeat($.var_decl)),
-                field("body", repeat(choice(
-                    $.instruction,
-                    $.label
-                ))),
+                repeat(choice(
+                    field("vars", $.var_decl),
+                    field("body", choice(
+                        $.instruction,
+                        $.label
+                    ))
+                )),
             "}"
         ),
 

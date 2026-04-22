@@ -1,7 +1,7 @@
-use crate::ir::{SymbolHandle, types::ValueType};
+use crate::ir::{SymbolHandle, hir::code::HirFunctionBody, types::ValueType};
 
 pub enum FunctionBody {
-    Hir(),
+    Hir(HirFunctionBody),
     Lir(),
 }
 
@@ -14,10 +14,16 @@ pub struct FunctionParameter {
     ty: ValueType,
 }
 
+impl FunctionParameter {
+    pub fn new(name: String, ty: ValueType) -> Self {
+        return Self { name, ty };
+    }
+}
+
 pub struct Function {
     pub(super) sym: SymbolHandle,
     pub(super) cconv: CallingConvention,
-    pub(super) args: Box<[FunctionParameter]>,
+    pub(super) params: Box<[FunctionParameter]>,
     pub(super) return_ty: ValueType,
     pub(super) body: FunctionBody,
 }
