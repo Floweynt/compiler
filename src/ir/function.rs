@@ -1,11 +1,8 @@
-use crate::ir::{
-    sym::{Symbol, SymbolData}, types::ValueType,
-};
+use crate::ir::{SymbolHandle, types::ValueType};
 
 pub enum FunctionBody {
     Hir(),
     Lir(),
-    None,
 }
 
 pub enum CallingConvention {
@@ -18,15 +15,9 @@ pub struct FunctionParameter {
 }
 
 pub struct Function {
-    sym: SymbolData,
-    cconv: CallingConvention,
-    args: Box<[FunctionParameter]>,
-    return_ty: ValueType,
-    body: FunctionBody,
-}
-
-impl Symbol for Function {
-    fn get_symbol(&self) -> &SymbolData {
-        &self.sym
-    }
+    pub(super) sym: SymbolHandle,
+    pub(super) cconv: CallingConvention,
+    pub(super) args: Box<[FunctionParameter]>,
+    pub(super) return_ty: ValueType,
+    pub(super) body: FunctionBody,
 }

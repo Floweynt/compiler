@@ -3,7 +3,7 @@ use malachite::Integer;
 /// Represents a type for the optimizer.
 ///
 /// These are abstract types, and aren't really correlated with machine types or anything a normal
-/// programming would care about such as i32, f32, etc. 
+/// programming would care about such as i32, f32, etc.
 ///
 /// This forms a [lattice](https://en.wikipedia.org/wiki/Lattice_(order)).
 enum OptType {
@@ -23,13 +23,10 @@ enum OptType {
     CtrlBottom,
 
     // TODO: model struct types
-
     Bottom,
 }
 
-enum TypeClass {
-    
-}
+enum TypeClass {}
 
 impl OptType {
     pub fn meet(&self, rhs: &OptType) -> OptType {

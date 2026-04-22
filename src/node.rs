@@ -37,7 +37,7 @@ def_opcode_class! {
             operand(0, None);
             operand(1, lhs);
             operand(2, rhs);
-        } 
+        }
 
         type_check!() {
             def("lhs") == $rhs;
@@ -49,4 +49,3 @@ def_opcode_class! {
         }
     }
 }
-

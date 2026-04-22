@@ -13,12 +13,14 @@ function commaSep(rule) {
 
 export default grammar({
     name: "hir",
-    word: $ => $.keyword,
+    word: $ => $.keyword_internal,
     rules: {
         source_file: $ => repeat(choice($.declare, $.define_var, $.define_fun)),
 
         identifier: $ => /@[\w.$]+/,
-        keyword: $ => /[a-zA-Z_]\w*/,
+        keyword_internal: $ => /[a-zA-Z_][\w.]*/,
+
+        _keyword: $ => alias($.keyword_internal, $.keyword),
 
         visibility: $ => choice("internal", "external", "private"),
         number: $ => choice(/[+-]?\d+/, /[+-]?0x[0-9a-fA-F]+/),
@@ -69,7 +71,7 @@ export default grammar({
         ),
 
         instruction: $ => seq(
-            field("opcode", $.keyword),
+            field("opcode", $._keyword),
             field("type", $.type),
             commaSep($.operand),
             ";"

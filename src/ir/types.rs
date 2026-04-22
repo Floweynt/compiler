@@ -1,10 +1,8 @@
 use std::num::NonZeroU32;
 
-use slotmap::new_key_type;
+use crate::ir::StructHandle;
 
-new_key_type! { pub struct StructHandle; }
-
-pub struct StructData {
+pub struct Struct {
     name: String,
     entries: Vec<(String, ValueType)>,
 }
@@ -14,6 +12,7 @@ pub struct FunctionType {
     return_ty: ValueType,
 }
 
+#[derive(Clone, Copy, Debug)]
 pub enum ValueType {
     Int { width: NonZeroU32 },
     F32,
@@ -22,5 +21,4 @@ pub enum ValueType {
     Ptr,
 }
 
-pub enum AbstractMachineType {
-}
+pub enum AbstractMachineType {}

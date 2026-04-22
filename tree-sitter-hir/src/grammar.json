@@ -1,7 +1,7 @@
 {
   "$schema": "https://tree-sitter.github.io/tree-sitter/assets/schemas/grammar.schema.json",
   "name": "hir",
-  "word": "keyword",
+  "word": "keyword_internal",
   "rules": {
     "source_file": {
       "type": "REPEAT",
@@ -27,9 +27,18 @@
       "type": "PATTERN",
       "value": "@[\\w.$]+"
     },
-    "keyword": {
+    "keyword_internal": {
       "type": "PATTERN",
-      "value": "[a-zA-Z_]\\w*"
+      "value": "[a-zA-Z_][\\w.]*"
+    },
+    "_keyword": {
+      "type": "ALIAS",
+      "content": {
+        "type": "SYMBOL",
+        "name": "keyword_internal"
+      },
+      "named": true,
+      "value": "keyword"
     },
     "visibility": {
       "type": "CHOICE",
@@ -303,7 +312,7 @@
           "name": "opcode",
           "content": {
             "type": "SYMBOL",
-            "name": "keyword"
+            "name": "_keyword"
           }
         },
         {

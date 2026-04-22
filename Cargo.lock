@@ -29,7 +29,6 @@ dependencies = [
  "smallvec",
  "tree-sitter",
  "tree-sitter-hir",
- "ts-utils",
  "walkdir",
 ]
 
@@ -444,13 +443,6 @@ dependencies = [
  "cc",
  "tree-sitter",
  "tree-sitter-language",
-]
-
-[[package]]
-name = "ts-utils"
-version = "0.1.0"
-dependencies = [
- "tree-sitter",
 ]
 
 [[package]]
