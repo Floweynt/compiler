@@ -5,7 +5,7 @@ use tree_sitter::{Language, LanguageError, Node, Tree};
 use crate::ir::{
     Module,
     function::{CallingConvention, FunctionBody, FunctionParameter},
-    hir::code::{BasicBlock, BlockTerminator, HirFunctionBody, HirInstruction, HirOpc},
+    hir::code::{BlockTerminator, HirFunctionBody, HirInstruction, HirOpc},
     sym::LinkageType,
     types::ValueType,
 };
@@ -200,14 +200,14 @@ impl Parser {
         let opc = body.child_by_field_id(self.opcode_field_name).unwrap();
         let ty = Self::parse_type(body.child_by_field_id(self.type_field_id).unwrap(), src)?;
 
-        return Ok(InsnParseRes::Insn(match Self::utf8_text(opc, src) {
+        Ok(InsnParseRes::Insn(match Self::utf8_text(opc, src) {
             b"add" => HirInstruction::new(HirOpc::Add, ty),
             b"sub" => HirInstruction::new(HirOpc::Sub, ty),
             b"mul" => HirInstruction::new(HirOpc::Mul, ty),
             b"div" => HirInstruction::new(HirOpc::Div, ty),
             b"mod" => HirInstruction::new(HirOpc::Mod, ty),
             _ => return Err(Diagnostic::make(opc, DiagnosticKind::UnknownOpc)),
-        }));
+        }))
     }
 
     pub fn parse(&mut self, src: &str) -> Result<Module, ParseError> {

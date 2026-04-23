@@ -29,8 +29,8 @@ impl<K: Key, V> NamedContainer<K, V> {
     }
 
     pub fn define_unnamed(&mut self, ent: V) -> K {
-        let k = self.entries.insert(ent);
-        k
+        
+        self.entries.insert(ent)
     }
 
     pub fn by_name(&self, name: &str) -> Option<K> {

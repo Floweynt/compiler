@@ -1,5 +1,5 @@
 use malachite::Integer;
-use slotmap::{SlotMap, new_key_type};
+use slotmap::new_key_type;
 
 use crate::{ir::types::ValueType, util::NamedContainer};
 
