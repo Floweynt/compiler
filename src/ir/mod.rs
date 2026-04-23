@@ -1,4 +1,3 @@
-use std::collections::{HashMap, hash_map};
 
 use slotmap::{SlotMap, new_key_type};
 

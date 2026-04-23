@@ -28,15 +28,20 @@ impl<K: Key, V> NamedContainer<K, V> {
         }
     }
 
+    pub fn define_unnamed(&mut self, ent: V) -> K {
+        let k = self.entries.insert(ent);
+        k
+    }
+
     pub fn by_name(&self, name: &str) -> Option<K> {
         self.by_name.get(name).copied()
     }
 
     pub fn by_key(&self, key: K) -> Option<&V> {
-        return self.entries.get(key);
+        self.entries.get(key)
     }
 
     pub fn by_key_mut(&mut self, key: K) -> Option<&mut V> {
-        return self.entries.get_mut(key);
+        self.entries.get_mut(key)
     }
 }

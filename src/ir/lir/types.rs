@@ -29,11 +29,11 @@ enum OptType {
 enum TypeClass {}
 
 impl OptType {
-    pub fn meet(&self, rhs: &OptType) -> OptType {
+    pub fn meet(&self, _rhs: &OptType) -> OptType {
         match self {
             OptType::Top => todo!(),
             OptType::TypeIntTop => todo!(),
-            OptType::TypeInt { lo, hi } => todo!(),
+            OptType::TypeInt { lo: _, hi: _ } => todo!(),
             OptType::TypeIntBot => todo!(),
             OptType::FloatTop => todo!(),
             OptType::F32Top => todo!(),

@@ -5,7 +5,7 @@ use tree_sitter::{Language, LanguageError, Node, Tree};
 use crate::ir::{
     Module,
     function::{CallingConvention, FunctionBody, FunctionParameter},
-    hir::code::{HirFunctionBody, HirLocal},
+    hir::code::{BasicBlock, BlockTerminator, HirFunctionBody, HirInstruction, HirOpc},
     sym::LinkageType,
     types::ValueType,
 };
@@ -16,6 +16,8 @@ pub struct Parser {
     declare_node_id: u16,
     define_var_node_id: u16,
     define_fun_node_id: u16,
+    instruction_node_id: u16,
+    label_node_id: u16,
 
     visibility_field_id: u16,
     name_field_id: u16,
@@ -25,6 +27,7 @@ pub struct Parser {
     param_name_field_id: u16,
     vars_field_id: u16,
     body_field_id: u16,
+    opcode_field_name: u16,
 }
 
 pub enum DiagnosticKind {
@@ -35,6 +38,8 @@ pub enum DiagnosticKind {
     BadTypeIntParseWidth,
     BadTypeIntZeroWidth,
     RedeclareVariable,
+    RedeclareLabel,
+    UnknownOpc,
 }
 
 pub struct SourceLocation {
@@ -78,12 +83,25 @@ impl DiagnosticReporter {
     pub fn report(&mut self, node: Node<'_>, kind: DiagnosticKind) {
         self.add(Diagnostic::make(node, kind));
     }
+
+    pub fn to_res(self, module: Module) -> Result<Module, ParseError> {
+        if self.0.is_empty() {
+            Ok(module)
+        } else {
+            Err(ParseError::DiagnosticsSem(self.0))
+        }
+    }
 }
 
 pub enum ParseError {
     Internal,
     DiagnosticsParse(Vec<Diagnostic>),
     DiagnosticsSem(Vec<Diagnostic>),
+}
+
+enum InsnParseRes {
+    Insn(HirInstruction),
+    Term(BlockTerminator),
 }
 
 impl Parser {
@@ -98,6 +116,8 @@ impl Parser {
             declare_node_id: lang.id_for_node_kind("declare", true),
             define_var_node_id: lang.id_for_node_kind("define_var", true),
             define_fun_node_id: lang.id_for_node_kind("define_fun", true),
+            instruction_node_id: lang.id_for_node_kind("instruction", true),
+            label_node_id: lang.id_for_node_kind("label", true),
             visibility_field_id: lang.field_id_for_name("visibility").unwrap().into(),
             name_field_id: lang.field_id_for_name("name").unwrap().into(),
             return_type_field_id: lang.field_id_for_name("return_type").unwrap().into(),
@@ -106,6 +126,7 @@ impl Parser {
             param_name_field_id: lang.field_id_for_name("param_name").unwrap().into(),
             vars_field_id: lang.field_id_for_name("vars").unwrap().into(),
             body_field_id: lang.field_id_for_name("body").unwrap().into(),
+            opcode_field_name: lang.field_id_for_name("opcode").unwrap().into(),
         })
     }
 
@@ -173,6 +194,20 @@ impl Parser {
             }
             _ => Err(Diagnostic::make(node, DiagnosticKind::BadTypeUnknown)),
         }
+    }
+
+    fn parse_insn(&mut self, body: Node<'_>, src: &str) -> Result<InsnParseRes, Diagnostic> {
+        let opc = body.child_by_field_id(self.opcode_field_name).unwrap();
+        let ty = Self::parse_type(body.child_by_field_id(self.type_field_id).unwrap(), src)?;
+
+        return Ok(InsnParseRes::Insn(match Self::utf8_text(opc, src) {
+            b"add" => HirInstruction::new(HirOpc::Add, ty),
+            b"sub" => HirInstruction::new(HirOpc::Sub, ty),
+            b"mul" => HirInstruction::new(HirOpc::Mul, ty),
+            b"div" => HirInstruction::new(HirOpc::Div, ty),
+            b"mod" => HirInstruction::new(HirOpc::Mod, ty),
+            _ => return Err(Diagnostic::make(opc, DiagnosticKind::UnknownOpc)),
+        }));
     }
 
     pub fn parse(&mut self, src: &str) -> Result<Module, ParseError> {
@@ -284,6 +319,47 @@ impl Parser {
                     }
                 }
 
+                let mut current_bb = body.define_bb_unnamed();
+
+                for body_node in top_level
+                    .children_by_field_id(NonZero::new(self.body_field_id).unwrap(), &mut inner_cur)
+                {
+                    if body_node.kind_id() == self.instruction_node_id {
+                        match self.parse_insn(body_node, src) {
+                            Ok(InsnParseRes::Insn(insn)) => {
+                                body.bb_mut_unchecked(current_bb).add_insn(insn);
+                            }
+                            Ok(InsnParseRes::Term(insn)) => {
+                                body.bb_mut_unchecked(current_bb).set_terminator(insn);
+                                current_bb = body.define_bb_unnamed();
+                            }
+                            Err(err) => {
+                                diag.add(err);
+                                continue;
+                            }
+                        };
+                    } else {
+                        let node_name = body_node.child_by_field_id(self.name_field_id).unwrap();
+
+                        let new_bb = match body.define_bb(
+                            str::from_utf8(Self::utf8_text(node_name, src))
+                                .unwrap()
+                                .to_owned(),
+                        ) {
+                            Ok(x) => x,
+                            Err(_) => {
+                                diag.report(node_name, DiagnosticKind::RedeclareLabel);
+                                continue;
+                            }
+                        };
+
+                        body.bb_mut_unchecked(current_bb)
+                            .set_terminator(BlockTerminator::Jmp(new_bb));
+
+                        current_bb = new_bb;
+                    }
+                }
+
                 if module
                     .define_function(
                         sym,
@@ -296,14 +372,12 @@ impl Parser {
                 {
                     diag.report(name_node, DiagnosticKind::Redefine);
                 }
-
-                todo!()
             } else {
                 unreachable!("illegal node type");
             }
         }
 
-        todo!()
+        diag.to_res(module)
     }
 }
 

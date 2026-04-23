@@ -16,7 +16,7 @@ pub struct FunctionParameter {
 
 impl FunctionParameter {
     pub fn new(name: String, ty: ValueType) -> Self {
-        return Self { name, ty };
+        Self { name, ty }
     }
 }
 
