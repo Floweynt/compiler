@@ -9,12 +9,14 @@ pub enum LinkageType {
     External,
 }
 
+#[derive(Debug)]
 pub enum SymbolContents {
     Function(FunctionHandle),
     Variable(VariableHandle),
     Undefined,
 }
 
+#[derive(Debug)]
 pub struct Symbol {
     linkage: LinkageType,
     name: String,

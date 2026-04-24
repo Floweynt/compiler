@@ -6,6 +6,7 @@ use crate::{ir::types::ValueType, util::NamedContainer};
 new_key_type! { pub struct Label; }
 new_key_type! { pub struct LvtRef; }
 
+#[derive(Debug)]
 pub enum BlockTerminator {
     Unreachable,
     Jmp(Label),
@@ -13,6 +14,7 @@ pub enum BlockTerminator {
     Ret,
 }
 
+#[derive(Debug)]
 pub enum HirOpc {
     LdcI(Integer),
 
@@ -42,6 +44,7 @@ pub enum HirOpc {
     Invoke { arity: usize },
 }
 
+#[derive(Debug)]
 pub struct HirInstruction {
     opc: HirOpc,
     ty: ValueType,
@@ -53,6 +56,7 @@ impl HirInstruction {
     }
 }
 
+#[derive(Debug)]
 pub struct BasicBlock {
     name: String,
     body: Vec<HirInstruction>,
@@ -69,11 +73,13 @@ impl BasicBlock {
     }
 }
 
+#[derive(Debug)]
 pub struct HirLocal {
     name: String,
     ty: ValueType,
 }
 
+#[derive(Debug)]
 pub struct HirFunctionBody {
     lvt: NamedContainer<LvtRef, HirLocal>,
     bb: NamedContainer<Label, BasicBlock>,

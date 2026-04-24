@@ -2,6 +2,7 @@ use std::collections::{HashMap, hash_map};
 
 use slotmap::{Key, SlotMap};
 
+#[derive(Debug)]
 pub struct NamedContainer<K: Key, V> {
     by_name: HashMap<String, K>,
     entries: SlotMap<K, V>,

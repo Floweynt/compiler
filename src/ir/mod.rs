@@ -20,6 +20,7 @@ new_key_type! { pub struct FunctionHandle; }
 new_key_type! { pub struct VariableHandle; }
 new_key_type! { pub struct SymbolHandle; }
 new_key_type! { pub struct StructHandle; }
+#[derive(Debug)]
 
 pub struct Module {
     symbols: NamedContainer<SymbolHandle, Symbol>,

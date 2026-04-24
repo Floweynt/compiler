@@ -30,6 +30,7 @@ pub struct Parser {
     opcode_field_name: u16,
 }
 
+#[derive(Debug)]
 pub enum DiagnosticKind {
     Redeclare,
     Redefine,
@@ -42,12 +43,14 @@ pub enum DiagnosticKind {
     UnknownOpc,
 }
 
+#[derive(Debug)]
 pub struct SourceLocation {
     pub byte: usize,
     pub row: usize,
     pub col: usize,
 }
 
+#[derive(Debug)]
 pub struct Diagnostic {
     kind: DiagnosticKind,
     range: (SourceLocation, SourceLocation),
@@ -93,6 +96,7 @@ impl DiagnosticReporter {
     }
 }
 
+#[derive(Debug)]
 pub enum ParseError {
     Internal,
     DiagnosticsParse(Vec<Diagnostic>),
@@ -191,7 +195,9 @@ impl Parser {
                         .try_into()
                         .map_err(|_| Diagnostic::make(node, DiagnosticKind::BadTypeIntZeroWidth))?,
                 })
-            }
+            },
+            b"f32" => Ok(ValueType::F32),
+            b"f64" => Ok(ValueType::F64),
             _ => Err(Diagnostic::make(node, DiagnosticKind::BadTypeUnknown)),
         }
     }
@@ -206,6 +212,7 @@ impl Parser {
             b"mul" => HirInstruction::new(HirOpc::Mul, ty),
             b"div" => HirInstruction::new(HirOpc::Div, ty),
             b"mod" => HirInstruction::new(HirOpc::Mod, ty),
+            b"ldc" => 
             _ => return Err(Diagnostic::make(opc, DiagnosticKind::UnknownOpc)),
         }))
     }
@@ -381,14 +388,3 @@ impl Parser {
     }
 }
 
-/*let mut parser = ::new();
-
-parser
-    .set_language(&LANGUAGE.into())
-    .expect("Error loading Nodes parser");
-
-parser.set_logger(Some(Box::new(|log_type, str| {
-
-})));
-
-parser.parse(src, None);*/

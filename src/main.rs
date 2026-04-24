@@ -12,5 +12,7 @@ fn main() {
     println!("hi");
     let mut parser = Parser::new().unwrap();
     let str = read("test/hir/test.hir").unwrap();
-    let _ = parser.parse(str::from_utf8(&str).unwrap());
+    let x = parser.parse(str::from_utf8(&str).unwrap());
+
+    dbg!(x);
 }
