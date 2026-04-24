@@ -1,8 +1,12 @@
 #![feature(new_range_api)]
+#![feature(gen_blocks)]
 
 use std::fs::read;
 
-use crate::ir::hir::parser::Parser;
+use crate::ir::{
+    hir::parser::Parser,
+    pass::{LowerHirLirPass, Pass},
+};
 
 mod ir;
 mod node;
@@ -12,7 +16,7 @@ fn main() {
     println!("hi");
     let mut parser = Parser::new().unwrap();
     let str = read("test/hir/test.hir").unwrap();
-    let x = parser.parse(str::from_utf8(&str).unwrap());
+    let mut x = parser.parse(str::from_utf8(&str).unwrap()).unwrap();
 
-    dbg!(x);
+    LowerHirLirPass::apply(&mut x);
 }

@@ -1,4 +1,6 @@
-use malachite::Integer;
+use malachite::{Integer, base::num::basic::traits::One};
+
+use crate::ir::types::ValueType;
 
 /// Represents a type for the optimizer.
 ///
@@ -6,7 +8,7 @@ use malachite::Integer;
 /// programming would care about such as i32, f32, etc.
 ///
 /// This forms a [lattice](https://en.wikipedia.org/wiki/Lattice_(order)).
-enum OptType {
+pub enum OptType {
     Top,
 
     TypeIntTop,
@@ -22,6 +24,9 @@ enum OptType {
     CtrlTop,
     CtrlBottom,
 
+    MemTop,
+    MemBottom,
+
     // TODO: model struct types
     Bottom,
 }
@@ -33,7 +38,7 @@ impl OptType {
         match self {
             OptType::Top => todo!(),
             OptType::TypeIntTop => todo!(),
-            OptType::TypeInt { lo: _, hi: _ } => todo!(),
+            OptType::TypeInt { lo, hi } => todo!(),
             OptType::TypeIntBot => todo!(),
             OptType::FloatTop => todo!(),
             OptType::F32Top => todo!(),
@@ -42,7 +47,26 @@ impl OptType {
             OptType::FloatBottom => todo!(),
             OptType::CtrlTop => todo!(),
             OptType::CtrlBottom => todo!(),
+            OptType::MemTop => todo!(),
+            OptType::MemBottom => todo!(),
             OptType::Bottom => todo!(),
+        }
+    }
+
+    pub fn from_vt_pessimistic(value: &ValueType) -> OptType {
+        match value {
+            ValueType::Int { width } => {
+                let v = Integer::ONE << (width.get() - 1u32);
+                OptType::TypeInt {
+                    lo: -v.clone(),
+                    hi: v - Integer::ONE,
+                }
+            }
+            ValueType::F32 => todo!(),
+            ValueType::F64 => todo!(),
+            ValueType::Struct(struct_handle) => todo!(),
+            ValueType::Ptr => todo!(),
+            ValueType::Bot => todo!(),
         }
     }
 }

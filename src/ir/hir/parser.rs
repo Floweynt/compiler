@@ -1,6 +1,7 @@
-use std::{iter, num::NonZero};
+use std::{iter, num::NonZero, str::FromStr};
 
-use tree_sitter::{Language, LanguageError, Node, Tree};
+use malachite::Integer;
+use tree_sitter::{Language, LanguageError, Node, Tree, TreeCursor};
 
 use crate::ir::{
     Module,
@@ -18,6 +19,9 @@ pub struct Parser {
     define_fun_node_id: u16,
     instruction_node_id: u16,
     label_node_id: u16,
+    identifier_node_id: u16,
+    number_node_id: u16,
+    float_node_id: u16,
 
     visibility_field_id: u16,
     name_field_id: u16,
@@ -28,6 +32,7 @@ pub struct Parser {
     vars_field_id: u16,
     body_field_id: u16,
     opcode_field_name: u16,
+    operands_field_name: u16,
 }
 
 #[derive(Debug)]
@@ -35,11 +40,14 @@ pub enum DiagnosticKind {
     Redeclare,
     Redefine,
     Undeclared,
+    UndeclaredVariable,
     BadTypeUnknown,
     BadTypeIntParseWidth,
     BadTypeIntZeroWidth,
     RedeclareVariable,
     RedeclareLabel,
+    BadOperandIntParse,
+    BadOperands,
     UnknownOpc,
 }
 
@@ -108,6 +116,12 @@ enum InsnParseRes {
     Term(BlockTerminator),
 }
 
+enum Operand<'a> {
+    Name(&'a str),
+    Number(Integer),
+    Float(f64), // TODO
+}
+
 impl Parser {
     pub fn new() -> Result<Parser, LanguageError> {
         let lang: Language = tree_sitter_hir::LANGUAGE.into();
@@ -122,6 +136,9 @@ impl Parser {
             define_fun_node_id: lang.id_for_node_kind("define_fun", true),
             instruction_node_id: lang.id_for_node_kind("instruction", true),
             label_node_id: lang.id_for_node_kind("label", true),
+            identifier_node_id: lang.id_for_node_kind("identifier", true),
+            number_node_id: lang.id_for_node_kind("number", true),
+            float_node_id: lang.id_for_node_kind("float", true),
             visibility_field_id: lang.field_id_for_name("visibility").unwrap().into(),
             name_field_id: lang.field_id_for_name("name").unwrap().into(),
             return_type_field_id: lang.field_id_for_name("return_type").unwrap().into(),
@@ -131,6 +148,7 @@ impl Parser {
             vars_field_id: lang.field_id_for_name("vars").unwrap().into(),
             body_field_id: lang.field_id_for_name("body").unwrap().into(),
             opcode_field_name: lang.field_id_for_name("opcode").unwrap().into(),
+            operands_field_name: lang.field_id_for_name("operands").unwrap().into(),
         })
     }
 
@@ -184,6 +202,9 @@ impl Parser {
 
     fn parse_type(node: Node, src: &str) -> Result<ValueType, Diagnostic> {
         match Self::utf8_text(node, src) {
+            b"f32" => Ok(ValueType::F32),
+            b"f64" => Ok(ValueType::F64),
+            b"bot" => Ok(ValueType::Bot),
             x if x.starts_with(b"i") => {
                 let width = str::from_utf8(&x[1..])
                     .unwrap()
@@ -195,25 +216,99 @@ impl Parser {
                         .try_into()
                         .map_err(|_| Diagnostic::make(node, DiagnosticKind::BadTypeIntZeroWidth))?,
                 })
-            },
-            b"f32" => Ok(ValueType::F32),
-            b"f64" => Ok(ValueType::F64),
+            }
             _ => Err(Diagnostic::make(node, DiagnosticKind::BadTypeUnknown)),
         }
     }
 
-    fn parse_insn(&mut self, body: Node<'_>, src: &str) -> Result<InsnParseRes, Diagnostic> {
+    fn make_insn(
+        node: Node<'_>,
+        opc: HirOpc,
+        ty: ValueType,
+        err: bool,
+    ) -> Result<HirInstruction, Diagnostic> {
+        if err {
+            Err(Diagnostic::make(node, DiagnosticKind::BadOperands))
+        } else {
+            Ok(HirInstruction::new(opc, ty))
+        }
+    }
+
+    fn parse_insn<'a>(
+        &mut self,
+        body: Node<'a>,
+        src: &str,
+        cursor: &mut TreeCursor<'a>,
+        func: &HirFunctionBody,
+    ) -> Result<InsnParseRes, Diagnostic> {
         let opc = body.child_by_field_id(self.opcode_field_name).unwrap();
+
         let ty = Self::parse_type(body.child_by_field_id(self.type_field_id).unwrap(), src)?;
 
+        let mut operands = vec![];
+
+        for node in
+            body.children_by_field_id(NonZero::new(self.operands_field_name).unwrap(), cursor)
+        {
+            let id = node.kind_id();
+            let str = str::from_utf8(Self::utf8_text(node, src)).unwrap();
+
+            if id == self.identifier_node_id {
+                operands.push(Operand::Name(str));
+            } else if id == self.number_node_id {
+                operands.push(Operand::Number(Integer::from_str(str).map_err(|_| {
+                    Diagnostic::make(node, DiagnosticKind::BadOperandIntParse)
+                })?));
+            } else {
+                todo!()
+            }
+        }
+
         Ok(InsnParseRes::Insn(match Self::utf8_text(opc, src) {
-            b"add" => HirInstruction::new(HirOpc::Add, ty),
-            b"sub" => HirInstruction::new(HirOpc::Sub, ty),
-            b"mul" => HirInstruction::new(HirOpc::Mul, ty),
-            b"div" => HirInstruction::new(HirOpc::Div, ty),
-            b"mod" => HirInstruction::new(HirOpc::Mod, ty),
-            b"ldc" => 
-            _ => return Err(Diagnostic::make(opc, DiagnosticKind::UnknownOpc)),
+            b"add" => Self::make_insn(body, HirOpc::Add, ty, !operands.is_empty())?,
+            b"sub" => Self::make_insn(body, HirOpc::Sub, ty, !operands.is_empty())?,
+            b"mul" => Self::make_insn(body, HirOpc::Mul, ty, !operands.is_empty())?,
+            b"div" => Self::make_insn(body, HirOpc::Div, ty, !operands.is_empty())?,
+            b"mod" => Self::make_insn(body, HirOpc::Mod, ty, !operands.is_empty())?,
+            b"ldc" => {
+                let Ok([val]) = TryInto::<[Operand; 1]>::try_into(operands) else {
+                    return Err(Diagnostic::make(opc, DiagnosticKind::BadOperands));
+                };
+
+                match val {
+                    Operand::Name(_) => todo!(),
+                    Operand::Number(integer) => HirInstruction::new(HirOpc::LdcI(integer), ty),
+                    Operand::Float(_) => todo!(),
+                }
+            }
+            b"ld" => {
+                let Ok([Operand::Name(val)]) = TryInto::<[Operand; 1]>::try_into(operands) else {
+                    return Err(Diagnostic::make(opc, DiagnosticKind::BadOperands));
+                };
+
+                let Some(x) = func.local_by_name(val) else {
+                    return Err(Diagnostic::make(opc, DiagnosticKind::UndeclaredVariable));
+                };
+
+                HirInstruction::new(HirOpc::Load(x), ty)
+            }
+            b"st" => {
+                let Ok([Operand::Name(val)]) = TryInto::<[Operand; 1]>::try_into(operands) else {
+                    return Err(Diagnostic::make(opc, DiagnosticKind::BadOperands));
+                };
+
+                let Some(x) = func.local_by_name(val) else {
+                    return Err(Diagnostic::make(opc, DiagnosticKind::UndeclaredVariable));
+                };
+
+                HirInstruction::new(HirOpc::Store(x), ty)
+            }
+            b"ret" => {
+                return Ok(InsnParseRes::Term(BlockTerminator::Ret));
+            }
+            _ => {
+                return Err(Diagnostic::make(opc, DiagnosticKind::UnknownOpc));
+            }
         }))
     }
 
@@ -230,7 +325,7 @@ impl Parser {
 
         // just give me a few temp cursor
         let mut inner_cur = tree.walk();
-        let mut inner_cur_name = tree.walk();
+        let mut inner_cur_alt = tree.walk();
 
         // build module
         for top_level in tree.root_node().children(&mut tree.walk()) {
@@ -279,7 +374,7 @@ impl Parser {
                     ),
                     top_level.children_by_field_id(
                         NonZero::new(self.param_name_field_id).unwrap(),
-                        &mut inner_cur_name,
+                        &mut inner_cur_alt,
                     ),
                 ) {
                     let ty = match Self::parse_type(ty, src) {
@@ -332,7 +427,7 @@ impl Parser {
                     .children_by_field_id(NonZero::new(self.body_field_id).unwrap(), &mut inner_cur)
                 {
                     if body_node.kind_id() == self.instruction_node_id {
-                        match self.parse_insn(body_node, src) {
+                        match self.parse_insn(body_node, src, &mut inner_cur_alt, &body) {
                             Ok(InsnParseRes::Insn(insn)) => {
                                 body.bb_mut_unchecked(current_bb).add_insn(insn);
                             }
@@ -387,4 +482,3 @@ impl Parser {
         diag.to_res(module)
     }
 }
-

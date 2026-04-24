@@ -3,8 +3,9 @@ declare internal @meow;
 define i32 @meow(i32 @a) {
     var i32 @local;
 
-    ldc f32 3.1415926;
+    ldc f32 3;
     
-    push i32 @local;
+    ld i32 @local;
 @local:
+    ret bot;
 }

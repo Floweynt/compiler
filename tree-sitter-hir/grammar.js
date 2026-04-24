@@ -75,7 +75,7 @@ export default grammar({
         instruction: $ => seq(
             field("opcode", $._keyword),
             field("type", $.type),
-            commaSep($.operand),
+            field("operands", commaSep(choice($.identifier, $.number, $.float))),
             ";"
         ),
 
@@ -83,7 +83,5 @@ export default grammar({
             field("name", $.identifier),
             ":"
         ),
-
-        operand: $ => choice($.identifier, $.number, $.float)
     }
 });

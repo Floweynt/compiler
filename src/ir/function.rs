@@ -21,6 +21,10 @@ impl FunctionParameter {
     pub fn new(name: String, ty: ValueType) -> Self {
         Self { name, ty }
     }
+
+    pub fn ty(&self) -> &ValueType {
+        &self.ty
+    }
 }
 
 #[derive(Debug)]

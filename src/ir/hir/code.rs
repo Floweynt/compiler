@@ -14,6 +14,21 @@ pub enum BlockTerminator {
     Ret,
 }
 
+impl BlockTerminator {
+    pub fn labels(&self) -> impl Iterator<Item = Label> {
+        gen {
+            match self {
+                BlockTerminator::Jmp(label) => yield *label,
+                BlockTerminator::Branch { if_true, if_false } => {
+                    yield *if_true;
+                    yield *if_false;
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum HirOpc {
     LdcI(Integer),
@@ -95,6 +110,10 @@ impl HirFunctionBody {
 
     pub fn define_local(&mut self, name: String, ty: ValueType) -> Result<LvtRef, LvtRef> {
         self.lvt.define(name.clone(), || HirLocal { name, ty })
+    }
+
+    pub fn local_by_name(&self, name: &str) -> Option<LvtRef> {
+        self.lvt.by_name(name)
     }
 
     pub fn define_bb(&mut self, name: String) -> Result<Label, Label> {

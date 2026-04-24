@@ -1,4 +1,3 @@
-
 use slotmap::{SlotMap, new_key_type};
 
 use crate::{
@@ -13,6 +12,7 @@ use crate::{
 pub mod function;
 pub mod hir;
 pub mod lir;
+pub mod pass;
 pub mod sym;
 pub mod types;
 
@@ -59,6 +59,14 @@ impl Module {
 
     pub fn get_symbol(&self, name: &str) -> Option<SymbolHandle> {
         self.symbols.by_name(name)
+    }
+
+    pub fn get_function(&self, func: FunctionHandle) -> Option<&Function> {
+        self.function_defs.get(func)
+    }
+
+    pub fn get_function_mut(&mut self, func: FunctionHandle) -> Option<&mut Function> {
+        self.function_defs.get_mut(func)
     }
 
     pub fn define_function(
