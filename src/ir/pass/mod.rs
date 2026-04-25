@@ -19,3 +19,5 @@ impl<T: FunctionPass> Pass for T {
         }
     }
 }
+
+pub mod dominator;

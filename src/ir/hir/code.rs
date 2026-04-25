@@ -86,6 +86,10 @@ impl BasicBlock {
     pub fn set_terminator(&mut self, terminator: BlockTerminator) {
         self.terminator = terminator;
     }
+
+    pub fn successors(&self) -> impl Iterator<Item = Label> {
+        self.terminator.labels()
+    }
 }
 
 #[derive(Debug)]
@@ -98,6 +102,7 @@ pub struct HirLocal {
 pub struct HirFunctionBody {
     lvt: NamedContainer<LvtRef, HirLocal>,
     bb: NamedContainer<Label, BasicBlock>,
+    entry: Option<Label>,
 }
 
 impl HirFunctionBody {
@@ -105,7 +110,16 @@ impl HirFunctionBody {
         Self {
             lvt: NamedContainer::new(),
             bb: NamedContainer::new(),
+            entry: None,
         }
+    }
+
+    pub fn blocks(&self) -> impl Iterator<Item = (Label, &BasicBlock)> {
+        self.bb.iter()
+    }
+
+    pub fn entry(&self) -> Label {
+        self.entry.unwrap()
     }
 
     pub fn define_local(&mut self, name: String, ty: ValueType) -> Result<LvtRef, LvtRef> {
@@ -121,6 +135,11 @@ impl HirFunctionBody {
             name,
             body: Vec::new(),
             terminator: BlockTerminator::Unreachable,
+        }).map(|label| {
+            if self.entry.is_none() {
+                self.entry = Some(label);
+            }
+            return label
         })
     }
 

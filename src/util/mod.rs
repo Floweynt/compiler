@@ -45,4 +45,8 @@ impl<K: Key, V> NamedContainer<K, V> {
     pub fn by_key_mut(&mut self, key: K) -> Option<&mut V> {
         self.entries.get_mut(key)
     }
+
+    pub fn iter(&self) -> impl Iterator<Item = (K, &V)> {
+        self.entries.iter()
+    }
 }
