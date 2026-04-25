@@ -2,17 +2,17 @@
 
 //implementation based on the paper "A Simple, Fast Dominance Algorithm"
 //by Cooper et al. (2001)
+use crate::ir::hir::code::{HirFunctionBody, Label};
 use slotmap::SecondaryMap;
-use crate::ir::hir::code::{Label, HirFunctionBody};
 
-pub struct dominator_tree {
-    pub immediate_dominator: SecondaryMap<Label, Label>,
+pub struct DominatorTree {
+    pub graph: SecondaryMap<Label, Label>,
 }
 
-impl dominator_tree {
-    pub fn make_dominator_tree(body: &HirFunctionBody) -> Self{
+impl DominatorTree {
+    pub fn make_dominator_tree(body: &HirFunctionBody) -> Self {
         //label to usize index mapping
-        let labels: Vec<Label> = body.blocks().map(|(l, _) | l).collect();
+        let labels: Vec<Label> = body.blocks().map(|(l, _)| l).collect();
         let mut label_to_index = SecondaryMap::<Label, usize>::new();
         for (i, &l) in labels.iter().enumerate() {
             label_to_index.insert(l, i);
@@ -30,13 +30,12 @@ impl dominator_tree {
                 successors[source_].push(dest_);
                 predecessors[dest_].push(source_);
             }
-
         }
 
         //rpo + computes dominators to build dominator tree
         let (rpo, rpo_index, _) = reverse_postorder(&successors, entry_index, node_count);
-        let immediate_dominator_index = dominator_search(&predecessors, entry_index, &rpo,
-                                                         &rpo_index, node_count);
+        let immediate_dominator_index =
+            dominator_search(&predecessors, entry_index, &rpo, &rpo_index, node_count);
 
         let mut immediate_dominator = SecondaryMap::<Label, Label>::new();
         for (node_index, immediate_dominator_) in immediate_dominator_index.iter().enumerate() {
@@ -45,7 +44,9 @@ impl dominator_tree {
             }
         }
 
-        return (dominator_tree {immediate_dominator})
+        DominatorTree {
+            graph: immediate_dominator,
+        }
     }
 
     //walks up dominator tree from node following idoms, returns whether it finds dom
@@ -56,9 +57,9 @@ impl dominator_tree {
                 return true;
             }
 
-            match self.immediate_dominator.get(current) {
+            match self.graph.get(current) {
                 Some(parent) => current = *parent,
-                None => return false
+                None => return false,
             }
         }
     }
@@ -66,10 +67,7 @@ impl dominator_tree {
     //finds idom of node
     //entry dominates itself so we return none
     pub fn immediate_dominator(&self, label: Label) -> Option<Label> {
-        let immediate_dominator_ = match self.immediate_dominator.get(label).copied() {
-            Some(immediate_dominator_) => immediate_dominator_,
-            None => return None,
-        };
+        let immediate_dominator_ = self.graph.get(label).copied()?;
 
         if immediate_dominator_ == label {
             None
@@ -79,12 +77,14 @@ impl dominator_tree {
     }
 }
 
-
 //dfs --> reverse to determine rpo order
 //gives traversal order + node indices in rpo + loop headers
 //we don't technically need loop headers, this is from the failed optimization
-fn reverse_postorder(successors: &[Vec<usize>],
-                     entry: usize, node_count: usize) -> (Vec<usize>, Vec<usize>, Vec<bool>) {
+fn reverse_postorder(
+    successors: &[Vec<usize>],
+    entry: usize,
+    node_count: usize,
+) -> (Vec<usize>, Vec<usize>, Vec<bool>) {
     //let node_count = cfg.node_count;
     let mut rpo = Vec::new();
     let mut rpo_index = vec![0usize; node_count];
@@ -93,17 +93,25 @@ fn reverse_postorder(successors: &[Vec<usize>],
     let mut loop_headers = vec![false; node_count];
 
     //recursive dfs, adds nodes to rpo
-    fn depth_first_search(successors: &[Vec<usize>], current: usize,
-                          stack: &mut [bool], done: &mut [bool],
-                          loop_headers: &mut [bool], rpo: &mut Vec<usize>,) {
+    fn depth_first_search(
+        successors: &[Vec<usize>],
+        current: usize,
+        stack: &mut [bool],
+        done: &mut [bool],
+        loop_headers: &mut [bool],
+        rpo: &mut Vec<usize>,
+    ) {
         stack[current] = true;
 
         for &next in &successors[current] {
-            if !done[next] { //skip if done
-                if stack[next] { //we have back edge, so mark as loop header
+            if !done[next] {
+                //skip if done
+                if stack[next] {
+                    //we have back edge, so mark as loop header
                     //this is unnecessary, can probably remove
                     loop_headers[next] = true;
-                } else { //unvisited, recurse
+                } else {
+                    //unvisited, recurse
                     depth_first_search(successors, next, stack, done, loop_headers, rpo);
                 }
             }
@@ -112,33 +120,48 @@ fn reverse_postorder(successors: &[Vec<usize>],
         stack[current] = false;
         done[current] = true;
         rpo.push(current);
-
     }
 
-    depth_first_search(successors, entry, &mut stack, &mut done, &mut loop_headers, &mut rpo);
+    depth_first_search(
+        successors,
+        entry,
+        &mut stack,
+        &mut done,
+        &mut loop_headers,
+        &mut rpo,
+    );
     rpo.reverse();
 
     for (i, &node) in rpo.iter().enumerate() {
         rpo_index[node] = i; //indexing
     }
 
-    return (rpo, rpo_index, loop_headers)
-
+    (rpo, rpo_index, loop_headers)
 }
 
 //we iterate over nodes in rpo repeatedly until convergence (nothing changes)
 //for each node, we compute idom by intersect on doms of predecessors
-fn dominator_search(predecessors: &[Vec<usize>], entry: usize, rpo: &[usize],
-                    rpo_index: &[usize], node_count: usize) -> Vec<Option<usize>> {
+fn dominator_search(
+    predecessors: &[Vec<usize>],
+    entry: usize,
+    rpo: &[usize],
+    rpo_index: &[usize],
+    node_count: usize,
+) -> Vec<Option<usize>> {
     //let (rpo, rpo_index, _) = reverse_postorder(cfg, entry);
 
     let mut immediate_dominator = vec![None; node_count];
     immediate_dominator[entry] = Some(entry);
 
     //finds common dom of two nodes by walking up dom tree
-    fn intersect(mut a: usize, mut b: usize, immediate_dominator: &[Option<usize>],
-                 rpo_index: &[usize]) -> usize {
-        while a != b { //not met so we walk deepest node up
+    fn intersect(
+        mut a: usize,
+        mut b: usize,
+        immediate_dominator: &[Option<usize>],
+        rpo_index: &[usize],
+    ) -> usize {
+        while a != b {
+            //not met so we walk deepest node up
             while rpo_index[a] > rpo_index[b] {
                 a = immediate_dominator[a].unwrap();
             }
@@ -146,97 +169,55 @@ fn dominator_search(predecessors: &[Vec<usize>], entry: usize, rpo: &[usize],
                 b = immediate_dominator[b].unwrap();
             }
         }
-        return (a)
+
+        a
     }
 
     //finds idom of a single node with intersect on predecessors
-    fn new_immediate_dominator(predecessors: &[Vec<usize>], node: usize,
-                               immediate_dominator: &[Option<usize>],
-                               rpo_index: &[usize],) -> Option<usize> {
-        let mut predecessors = predecessors[node].iter().copied().filter(|&p| immediate_dominator[p].is_some());
+    fn new_immediate_dominator(
+        predecessors: &[Vec<usize>],
+        node: usize,
+        immediate_dominator: &[Option<usize>],
+        rpo_index: &[usize],
+    ) -> Option<usize> {
+        let mut predecessors = predecessors[node]
+            .iter()
+            .copied()
+            .filter(|&p| immediate_dominator[p].is_some());
 
-        let mut result = match predecessors.next() {
-            Some(x) => x,
-            None => return None,
-        };
+        let mut result = predecessors.next()?;
 
         for p in predecessors {
             result = intersect(p, result, immediate_dominator, rpo_index);
         }
 
         Some(result)
-
-
     }
 
     loop {
         let mut changed = false;
 
-        for &node in &rpo {
-            if node == entry { //skip entry node
+        for &node in rpo {
+            if node == entry {
+                //skip entry node
                 continue;
             }
 
             //gives idom of node in current state (update basically)
-            let new_idom = new_immediate_dominator(predecessors, node, &immediate_dominator, &rpo_index);
+            let new_idom =
+                new_immediate_dominator(predecessors, node, &immediate_dominator, &rpo_index);
             if immediate_dominator[node] != new_idom {
                 immediate_dominator[node] = new_idom;
                 changed = true;
             }
-
         }
 
-        if !changed { //converge
+        if !changed {
+            //converge
             break;
         }
-
     }
-    return (immediate_dominator)
 
-
+    immediate_dominator
 }
-// struct CFG {
-//     successors: Vec<Vec<usize>>,
-//     predecessors: Vec<Vec<usize>>,
-//     node_count: usize,
-// }
-//
-// impl CFG {
-//     fn new(node_count: usize) -> Self {
-//         CFG {
-//             successors: vec![vec![]; node_count],
-//             predecessors: vec![vec![]; node_count],
-//             node_count,
-//
-//         }
-//     }
-//
-//     fn add_edge(&mut self, source: usize, destination: usize) {
-//         self.successors[source].push(destination);
-//         self.predecessors[destination].push(source);
-//     }
-// }
 
-// fn make_nested(depth: usize) -> (CFG, usize) {
-//     let node_count = depth + 3;
-//     let entry = 0;
-//     let body = depth + 1;
-//     let exit = depth + 2;
-//     let node = |i: usize| i + 1;
-//     let mut cfg = CFG::new(node_count);
-//
-//     cfg.add_edge(entry, node(0));
-//     for i in 0..(depth - 1) {
-//         cfg.add_edge(node(i), node(i + 1));
-//     }
-//
-//     cfg.add_edge(node(depth - 1), body);
-//     cfg.add_edge(body, node(depth - 1));
-//
-//     for i in (1..depth).rev() {
-//         cfg.add_edge(node(i), node(i - 1));
-//     }
-//
-//     cfg.add_edge(node(0), exit);
-//     (cfg, entry)
-// }
