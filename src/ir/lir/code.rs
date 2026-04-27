@@ -1,12 +1,11 @@
-use slotmap::{SecondaryMap, SlotMap, new_key_type};
-use std::vec;
-
-use malachite::Integer;
-use malachite::base::num::basic::traits::Phi;
 use slotmap::{SlotMap, new_key_type};
+
 use smallvec::SmallVec;
 
-use crate::ir::{function::Function, lir::types::OptType};
+use crate::ir::{
+    function::Function,
+    lir::{peeps::Idealize, types::OptType},
+};
 
 new_key_type! { pub struct NodeRef; }
 
@@ -36,6 +35,8 @@ pub enum NodeKind {
     CProj,
     Merge,
     Loop,
+
+    Nil,
 }
 
 pub struct NodeUse {
@@ -50,12 +51,16 @@ pub struct NodeDef {
 
 pub struct Node {
     kind: NodeKind,
-    inputs: SmallVec<[NodeUse; 4]>,
+    inputs: SmallVec<[Option<NodeUse>; 4]>,
     outputs: SmallVec<[(OptType, SmallVec<[NodeDef; 4]>); 2]>,
 }
 
 impl Node {
-    fn add_in(&mut self, graph: &LirGraph, node: NodeUse) {}
+    fn add_in(&mut self, graph: &mut LirGraph, node: NodeUse) {
+        self.add_nullable_in(graph, Some(node));
+    }
+
+    fn add_nullable_in(&mut self, graph: &mut LirGraph, node: Option<NodeUse>) {}
 
     fn add_out(&mut self, ty: OptType) {
         self.outputs.push((ty, SmallVec::default()));
@@ -185,8 +190,8 @@ impl LirGraph {
         self.nodes.get(node).unwrap()
     }
 
-    pub fn make_phi(&mut self, merge: MergeNodeRef, ty: OptType) -> PhiNodeRef {
-        PhiNodeRef(self.nodes.insert({
+    pub fn make_phi(&mut self, merge: MergeNodeRef, ty: OptType) -> (PhiNodeRef, NodeUse) {
+        let node = {
             let mut n = Node {
                 kind: NodeKind::Phi,
                 inputs: Default::default(),
@@ -194,12 +199,109 @@ impl LirGraph {
             };
 
             n.add_out(ty);
+            n.add_in(self, merge.out(0));
 
             n
-        }))
+        };
+
+        let node = PhiNodeRef(self.nodes.insert(node));
+
+        (node, node.out(0))
     }
 
-    pub fn use_type(&self, node: NodeUse) {}
+    pub fn use_type(&self, node: NodeUse) -> OptType {
+        self.get_node(node.node).outputs[node.out_idx].0.clone()
+    }
 
-    pub fn make_add(&mut self, lhs: NodeUse, rhs: NodeUse) {}
+    fn make_binop(&mut self, lhs: NodeUse, rhs: NodeUse, k: NodeKind, out_ind: usize) -> NodeUse {
+        let node = {
+            let mut n = Node {
+                kind: k,
+                inputs: Default::default(),
+                outputs: Default::default(),
+            };
+
+            n.add_out(OptType::Bottom);
+            n.add_nullable_in(self, None);
+            n.add_in(self, lhs);
+            n.add_in(self, rhs);
+
+            n
+        };
+
+        let node = self.nodes.insert(node);
+
+        Idealize::rewrite(node.out(out_ind), self)
+    }
+
+    pub fn make_add(&mut self, lhs: NodeUse, rhs: NodeUse) -> NodeUse {
+        self.make_binop(lhs, rhs, NodeKind::Add, 0)
+    }
+
+    pub fn make_sub(&mut self, lhs: NodeUse, rhs: NodeUse) -> NodeUse {
+        self.make_binop(lhs, rhs, NodeKind::Sub, 0)
+    }
+
+    pub fn make_mul(&mut self, lhs: NodeUse, rhs: NodeUse) -> NodeUse {
+        self.make_binop(lhs, rhs, NodeKind::Mul, 0)
+    }
+
+    pub fn make_div(&mut self, lhs: NodeUse, rhs: NodeUse) -> NodeUse {
+        self.make_binop(lhs, rhs, NodeKind::DivMod, 0)
+    }
+
+    pub fn make_mod(&mut self, lhs: NodeUse, rhs: NodeUse) -> NodeUse {
+        self.make_binop(lhs, rhs, NodeKind::DivMod, 1)
+    }
+
+    pub fn make_if(&mut self, ctrl: NodeUse, pred: NodeUse) -> (NodeUse, NodeUse) {
+        let node = {
+            let mut n = Node {
+                kind: NodeKind::If,
+                inputs: Default::default(),
+                outputs: Default::default(),
+            };
+
+            n.add_out(OptType::CtrlTop);
+            n.add_out(OptType::CtrlTop);
+            n.add_in(self, ctrl);
+            n.add_in(self, pred);
+
+            n
+        };
+
+        let node = IfNodeRef(self.nodes.insert(node));
+
+        let proj_true = {
+            let mut n = Node {
+                kind: NodeKind::CProj,
+                inputs: Default::default(),
+                outputs: Default::default(),
+            };
+
+            n.add_out(OptType::CtrlTop);
+            n.add_in(self, node.out(0));
+
+            n
+        };
+
+        let proj_true = self.nodes.insert(proj_true).out(0);
+
+        let proj_false = {
+            let mut n = Node {
+                kind: NodeKind::CProj,
+                inputs: Default::default(),
+                outputs: Default::default(),
+            };
+
+            n.add_out(OptType::CtrlTop);
+            n.add_in(self, node.out(1));
+
+            n
+        };
+
+        let proj_false = self.nodes.insert(proj_false).out(0);
+
+        (proj_true, proj_false)
+    }
 }

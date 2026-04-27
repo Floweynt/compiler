@@ -8,6 +8,7 @@ use crate::ir::types::ValueType;
 /// programming would care about such as i32, f32, etc.
 ///
 /// This forms a [lattice](https://en.wikipedia.org/wiki/Lattice_(order)).
+#[derive(Clone)]
 pub enum OptType {
     Top,
 
