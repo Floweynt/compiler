@@ -1,10 +1,12 @@
-use slotmap::SecondaryMap;
-
 use crate::ir::{
-    FunctionHandle, Module, function::FunctionBody, hir::code::Label, pass::FunctionPass,
+    FunctionHandle, Module,
+    function::FunctionBody,
+    pass::{FunctionPass, dominator::DominatorTree},
 };
 
 pub struct LowerHirLirPass;
+
+struct AnalysisFrame {}
 
 impl FunctionPass for LowerHirLirPass {
     fn apply_function(module: &mut Module, func: FunctionHandle) {
@@ -15,6 +17,6 @@ impl FunctionPass for LowerHirLirPass {
             FunctionBody::Lir() => panic!("can't perform LowerHirLirPass on LIR Function"),
         };
 
-        let dom_tree: SecondaryMap<Label, Label>; 
+        let dom_tree = DominatorTree::make_dominator_tree(body);
     }
 }

@@ -1,88 +1,149 @@
-#![allow(non_camel_case_types)] //because you smell <3
+use slotmap::{SecondaryMap, SlotMap, new_key_type};
+use std::vec;
 
-use slotmap::{SlotMap, SecondaryMap, new_key_type};
-use smallvec::SmallVec;
 use malachite::Integer;
+use malachite::base::num::basic::traits::Phi;
+use slotmap::{SlotMap, new_key_type};
+use smallvec::SmallVec;
 
 use crate::ir::{function::Function, lir::types::OptType};
 
 new_key_type! { pub struct NodeRef; }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct virtual_register(pub u32);
+pub struct VirtualRegister(pub u32);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct spill_slot(pub u32);
+pub struct SpillSlot(pub u32);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum binary_operation_type {
-    Add, Sub, Mul, Div, Mod, BitAnd, BitOr,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum unary_operation_type {
-    Neg, BitNot
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum comparator_type {
-    Equal, NotEqual, GreaterThan, LessThan, GreaterEqual, LessEqual,
-}
 pub enum NodeKind {
     Start,
     Stop,
-    Const(Integer),
-    Copy,
-    binary_operation(binary_operation_type),
-    unary_operation(unary_operation_type),
-    sign_extend,
-    zero_extend,
-    comparator(comparator_type),
-    memory_store,
-    memory_load,
-    load_spill(spill_slot),
-    store_spill(spill_slot),
-    Jump,
-    Branch,
-    Call {
-        arity: usize
-    },
+    Call { arity: usize },
+
+    // bin ops
+    Add,
+    Sub,
+    Mul,
+    DivMod,
+
     Phi,
+
+    Ret,
+
+    // control
+    If,
+    CProj,
+    Merge,
+    Loop,
 }
 
-struct NodeUse {
+pub struct NodeUse {
     node: NodeRef,
     out_idx: usize,
 }
 
-struct NodeDef {
+pub struct NodeDef {
     node: NodeRef,
     in_idx: usize,
 }
 
-struct Node {
+pub struct Node {
     kind: NodeKind,
     inputs: SmallVec<[NodeUse; 4]>,
-    outputs: SmallVec<[SmallVec<[NodeDef; 4]>; 2]>,
-    ty: SmallVec<[OptType; 2]>,
-    virtual_register: Option<virtual_register>,
+    outputs: SmallVec<[(OptType, SmallVec<[NodeDef; 4]>); 2]>,
 }
 
 impl Node {
+    fn add_in(&mut self, graph: &LirGraph, node: NodeUse) {}
+
     fn add_out(&mut self, ty: OptType) {
-        self.outputs.push(SmallVec::default());
-        self.ty.push(ty);
+        self.outputs.push((ty, SmallVec::default()));
+    }
+
+    fn n_outs(&self) -> usize {
+        self.outputs.len()
+    }
+}
+
+pub trait NodeRefLike: Copy {
+    fn do_cast(other: NodeRef, graph: &LirGraph) -> Option<Self>;
+
+    fn underlying_ref(self) -> NodeRef;
+
+    #[inline(always)]
+    fn cast<U: NodeRefLike>(other: U, graph: &LirGraph) -> Option<Self> {
+        Self::do_cast(other.underlying_ref(), graph)
+    }
+
+    #[inline(always)]
+    fn is<U: NodeRefLike>(other: U, graph: &LirGraph) -> bool {
+        Self::cast(other, graph).is_some()
+    }
+
+    fn out(&self, ind: usize) -> NodeUse {
+        NodeUse {
+            node: self.underlying_ref(),
+            out_idx: ind,
+        }
+    }
+}
+
+impl NodeRefLike for NodeRef {
+    fn underlying_ref(self) -> NodeRef {
+        self
+    }
+
+    fn do_cast(other: NodeRef, graph: &LirGraph) -> Option<Self> {
+        Some(other)
+    }
+}
+
+macro_rules! define_struct {
+    ($name: ident, $($pat:pat_param)|+ $(,)?) => {
+        #[derive(Clone, Copy)]
+        #[repr(transparent)]
+        pub struct $name(NodeRef);
+
+        impl NodeRefLike for $name {
+            fn do_cast(other: NodeRef, graph: &LirGraph) -> Option<Self> {
+                match graph.get_node(other).kind {
+                    $($pat)|+ => Some(Self(other)),
+                    // TODO: add patterns in macro parameters
+                    _ => None
+                }
+            }
+
+            fn underlying_ref(self) -> NodeRef {
+                self.0
+            }
+        }
+    };
+}
+
+define_struct!(StartNodeRef, NodeKind::Start);
+define_struct!(PhiNodeRef, NodeKind::Phi);
+define_struct!(IfNodeRef, NodeKind::If);
+define_struct!(MergeNodeRef, NodeKind::Merge);
+
+impl StartNodeRef {
+    pub fn out_arg(&self, idx: usize) -> NodeUse {
+        self.out(idx + 2)
+    }
+
+    pub fn out_ctrl(&self) -> NodeUse {
+        self.out(0)
+    }
+
+    pub fn out_mem(&self) -> NodeUse {
+        self.out(1)
     }
 }
 
 pub struct LirGraph {
     nodes: SlotMap<NodeRef, Node>,
-    start_node: NodeRef,
+    start_node: StartNodeRef,
     stop_node: NodeRef,
-
-    define_virtual_register: SecondaryMap<NodeRef, virtual_register>,
-    next_virtual_register: u32,
-    next_spill_slot: u32,
 }
 
 impl LirGraph {
@@ -91,8 +152,6 @@ impl LirGraph {
             kind: NodeKind::Start,
             inputs: Default::default(),
             outputs: Default::default(),
-            ty: Default::default(),
-            virtual_register: None,
         };
 
         start.add_out(OptType::CtrlTop);
@@ -109,60 +168,38 @@ impl LirGraph {
             kind: NodeKind::Stop,
             inputs: Default::default(),
             outputs: Default::default(),
-            ty: Default::default(),
-            virtual_register: None,
         });
 
         LirGraph {
             nodes,
-            start_node,
+            start_node: StartNodeRef(start_node),
             stop_node,
-            define_virtual_register: SecondaryMap::new(),
-            next_virtual_register: 0,
-            next_spill_slot: 0,
         }
     }
 
-    pub fn new_spill_slot(&mut self) -> spill_slot {
-        let spill = spill_slot(self.next_spill_slot);
-        self.next_spill_slot += 1;
-        return spill;
+    pub fn arg(&self, arg: usize) -> Option<NodeUse> {
+        Some(self.start_node.out_arg(arg))
     }
 
-    pub fn new_virtual_register(&mut self) -> virtual_register {
-        let vreg = virtual_register(self.next_virtual_register);
-        self.next_virtual_register += 1;
-        return vreg;
+    pub fn get_node(&self, node: NodeRef) -> &Node {
+        self.nodes.get(node).unwrap()
     }
 
-    pub fn set_virtual_register(&mut self, node: NodeRef, virtual_register: virtual_register) {
-        if let Some(n) = self.nodes.get_mut(node) {
-            n.virtual_register = Some(virtual_register);
-        }
-        self.define_virtual_register.insert(node, virtual_register);
+    pub fn make_phi(&mut self, merge: MergeNodeRef, ty: OptType) -> PhiNodeRef {
+        PhiNodeRef(self.nodes.insert({
+            let mut n = Node {
+                kind: NodeKind::Phi,
+                inputs: Default::default(),
+                outputs: Default::default(),
+            };
+
+            n.add_out(ty);
+
+            n
+        }))
     }
 
-    pub fn get_virtual_register(&self, node: NodeRef) -> Option<virtual_register> {
-        match self.nodes.get(node) {
-            Some(n) => n.virtual_register,
-            None => return None,
-        }
-    }
+    pub fn use_type(&self, node: NodeUse) {}
 
-    pub fn add_node(&mut self, kind: NodeKind) -> NodeRef {
-        self.nodes.insert(Node {
-            kind,
-            inputs: Default::default(),
-            outputs: Default::default(),
-            ty: Default::default(),
-            virtual_register: None,
-
-        })
-    }
-    pub fn start_node(&self) -> NodeRef {
-        self.start_node
-    }
-    pub fn stop_node(&self) -> NodeRef {
-        self.stop_node
-    }
+    pub fn make_add(&mut self, lhs: NodeUse, rhs: NodeUse) {}
 }

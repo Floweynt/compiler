@@ -1,4 +1,4 @@
-//python toy example but ported to rust yayyy
+// python toy example but ported to rust yayyy
 
 //implementation based on the paper "A Simple, Fast Dominance Algorithm"
 //by Cooper et al. (2001)
@@ -205,7 +205,7 @@ fn dominator_search(
 
             //gives idom of node in current state (update basically)
             let new_idom =
-                new_immediate_dominator(predecessors, node, &immediate_dominator, &rpo_index);
+                new_immediate_dominator(predecessors, node, &immediate_dominator, rpo_index);
             if immediate_dominator[node] != new_idom {
                 immediate_dominator[node] = new_idom;
                 changed = true;
@@ -220,4 +220,3 @@ fn dominator_search(
 
     immediate_dominator
 }
-
