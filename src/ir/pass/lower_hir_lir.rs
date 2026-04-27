@@ -14,7 +14,7 @@ impl FunctionPass for LowerHirLirPass {
 
         let body = match &func.body {
             FunctionBody::Hir(body) => body,
-            FunctionBody::Lir() => panic!("can't perform LowerHirLirPass on LIR Function"),
+            FunctionBody::Lir(_) => panic!("can't perform LowerHirLirPass on LIR Function"),
         };
 
         let dom_tree = DominatorTree::make_dominator_tree(body);

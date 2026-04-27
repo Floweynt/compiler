@@ -15,6 +15,7 @@ pub struct VirtualRegister(pub u32);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SpillSlot(pub u32);
 
+#[derive(Debug)]
 pub enum NodeKind {
     Start,
     Stop,
@@ -23,8 +24,10 @@ pub enum NodeKind {
     // bin ops
     Add,
     Sub,
-    Mul,
-    DivMod,
+    SMul,
+    UMul,
+    SDivMod,
+    UDivMod,
 
     Phi,
 
@@ -34,21 +37,23 @@ pub enum NodeKind {
     If,
     CProj,
     Merge,
-    Loop,
 
     Nil,
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct NodeUse {
-    node: NodeRef,
-    out_idx: usize,
+    pub node: NodeRef,
+    pub out_idx: usize,
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct NodeDef {
-    node: NodeRef,
-    in_idx: usize,
+    pub node: NodeRef,
+    pub in_idx: usize,
 }
 
+#[derive(Debug)]
 pub struct Node {
     kind: NodeKind,
     inputs: SmallVec<[Option<NodeUse>; 4]>,
@@ -92,6 +97,18 @@ pub trait NodeRefLike: Copy {
             out_idx: ind,
         }
     }
+
+    fn inputs<'a>(&self, graph: &'a LirGraph) -> impl Iterator<Item = &'a Option<NodeUse>> {
+        graph.get_node(self.underlying_ref()).inputs.iter()
+    }
+
+    fn outputs<'a>(&self, graph: &'a LirGraph) -> impl Iterator<Item = &'a NodeDef> {
+        graph
+            .get_node(self.underlying_ref())
+            .outputs
+            .iter()
+            .flat_map(|f| f.1.iter())
+    }
 }
 
 impl NodeRefLike for NodeRef {
@@ -106,7 +123,7 @@ impl NodeRefLike for NodeRef {
 
 macro_rules! define_struct {
     ($name: ident, $($pat:pat_param)|+ $(,)?) => {
-        #[derive(Clone, Copy)]
+        #[derive(Clone, Copy, Debug)]
         #[repr(transparent)]
         pub struct $name(NodeRef);
 
@@ -127,8 +144,29 @@ macro_rules! define_struct {
 }
 
 define_struct!(StartNodeRef, NodeKind::Start);
+define_struct!(StopNodeRef, NodeKind::Stop);
 define_struct!(PhiNodeRef, NodeKind::Phi);
 define_struct!(IfNodeRef, NodeKind::If);
+define_struct!(
+    CFGNodeRef,
+    NodeKind::Start
+        | NodeKind::Stop
+        | NodeKind::Ret
+        | NodeKind::If
+        | NodeKind::CProj
+        | NodeKind::Merge
+);
+
+impl IfNodeRef {
+    fn out_true(self) -> NodeUse {
+        self.out(0)
+    }
+
+    fn out_false(self) -> NodeUse {
+        self.out(1)
+    }
+}
+
 define_struct!(MergeNodeRef, NodeKind::Merge);
 
 impl StartNodeRef {
@@ -145,10 +183,11 @@ impl StartNodeRef {
     }
 }
 
+#[derive(Debug)]
 pub struct LirGraph {
-    nodes: SlotMap<NodeRef, Node>,
+    pub nodes: SlotMap<NodeRef, Node>,
     start_node: StartNodeRef,
-    stop_node: NodeRef,
+    stop_node: StopNodeRef,
 }
 
 impl LirGraph {
@@ -178,7 +217,7 @@ impl LirGraph {
         LirGraph {
             nodes,
             start_node: StartNodeRef(start_node),
-            stop_node,
+            stop_node: StopNodeRef(stop_node),
         }
     }
 
@@ -213,6 +252,14 @@ impl LirGraph {
         self.get_node(node.node).outputs[node.out_idx].0.clone()
     }
 
+    pub fn start_node(&self) -> StartNodeRef {
+        self.start_node
+    }
+
+    pub fn stop_node(&self) -> StopNodeRef {
+        self.stop_node
+    }
+
     fn make_binop(&mut self, lhs: NodeUse, rhs: NodeUse, k: NodeKind, out_ind: usize) -> NodeUse {
         let node = {
             let mut n = Node {
@@ -242,16 +289,28 @@ impl LirGraph {
         self.make_binop(lhs, rhs, NodeKind::Sub, 0)
     }
 
-    pub fn make_mul(&mut self, lhs: NodeUse, rhs: NodeUse) -> NodeUse {
-        self.make_binop(lhs, rhs, NodeKind::Mul, 0)
+    pub fn make_smul(&mut self, lhs: NodeUse, rhs: NodeUse) -> NodeUse {
+        self.make_binop(lhs, rhs, NodeKind::SMul, 0)
     }
 
-    pub fn make_div(&mut self, lhs: NodeUse, rhs: NodeUse) -> NodeUse {
-        self.make_binop(lhs, rhs, NodeKind::DivMod, 0)
+    pub fn make_sdiv(&mut self, lhs: NodeUse, rhs: NodeUse) -> NodeUse {
+        self.make_binop(lhs, rhs, NodeKind::SDivMod, 0)
     }
 
-    pub fn make_mod(&mut self, lhs: NodeUse, rhs: NodeUse) -> NodeUse {
-        self.make_binop(lhs, rhs, NodeKind::DivMod, 1)
+    pub fn make_smod(&mut self, lhs: NodeUse, rhs: NodeUse) -> NodeUse {
+        self.make_binop(lhs, rhs, NodeKind::SDivMod, 1)
+    }
+
+    pub fn make_umul(&mut self, lhs: NodeUse, rhs: NodeUse) -> NodeUse {
+        self.make_binop(lhs, rhs, NodeKind::UMul, 0)
+    }
+
+    pub fn make_udiv(&mut self, lhs: NodeUse, rhs: NodeUse) -> NodeUse {
+        self.make_binop(lhs, rhs, NodeKind::UDivMod, 0)
+    }
+
+    pub fn make_umod(&mut self, lhs: NodeUse, rhs: NodeUse) -> NodeUse {
+        self.make_binop(lhs, rhs, NodeKind::UDivMod, 1)
     }
 
     pub fn make_if(&mut self, ctrl: NodeUse, pred: NodeUse) -> (NodeUse, NodeUse) {
@@ -280,7 +339,7 @@ impl LirGraph {
             };
 
             n.add_out(OptType::CtrlTop);
-            n.add_in(self, node.out(0));
+            n.add_in(self, node.out_true());
 
             n
         };
@@ -295,7 +354,7 @@ impl LirGraph {
             };
 
             n.add_out(OptType::CtrlTop);
-            n.add_in(self, node.out(1));
+            n.add_in(self, node.out_false());
 
             n
         };
@@ -303,5 +362,9 @@ impl LirGraph {
         let proj_false = self.nodes.insert(proj_false).out(0);
 
         (proj_true, proj_false)
+    }
+
+    pub fn remove(&mut self, node: NodeRef) {
+        todo!()
     }
 }
