@@ -1,7 +1,5 @@
-use slotmap::SecondaryMap;
-
 use crate::ir::{
-    FunctionHandle, Module, function::FunctionBody, hir::code::Label, pass::FunctionPass,
+    FunctionHandle, Module, function::FunctionBody, pass::FunctionPass,
 };
 
 pub struct LowerHirLirPass;
@@ -15,6 +13,6 @@ impl FunctionPass for LowerHirLirPass {
             FunctionBody::Lir() => panic!("can't perform LowerHirLirPass on LIR Function"),
         };
 
-        let dom_tree: SecondaryMap<Label, Label>; 
+        let ssa = super::ssa::build_ssa(body);
     }
 }
