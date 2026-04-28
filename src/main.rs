@@ -5,7 +5,7 @@ use std::fs::read;
 
 use crate::ir::{
     hir::parser::Parser,
-    pass::{LowerHirLirPass, Pass},
+    pass::{GlobalCodeMotion, LowerHirLirPass, Pass},
 };
 
 mod ir;
@@ -18,5 +18,7 @@ fn main() {
     let str = read("test/hir/test.hir").unwrap();
     let mut x = parser.parse(str::from_utf8(&str).unwrap()).unwrap();
 
-    LowerHirLirPass::apply(&mut x);
+    LowerHirLirPass.apply(&mut x);
+    // TODO: apply GVM
+    GlobalCodeMotion.apply(&mut x);
 }

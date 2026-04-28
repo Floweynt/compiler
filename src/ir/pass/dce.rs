@@ -11,7 +11,7 @@ use crate::ir::{
 pub struct DeadCodeElimination;
 
 impl FunctionPass for DeadCodeElimination {
-    fn apply_function(module: &mut Module, func: FunctionHandle) {
+    fn apply_function(&mut self, module: &mut Module, func: FunctionHandle) {
         let body = lir_body(module, func);
 
         let stop = body.stop_node().underlying_ref();

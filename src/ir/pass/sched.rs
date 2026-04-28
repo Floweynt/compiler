@@ -2,9 +2,8 @@ use slotmap::SecondaryMap;
 
 use crate::ir::{
     FunctionHandle, Module,
-    function::FunctionBody,
     lir::code::{CFGNodeRef, LirGraph, NodeRef, NodeRefLike},
-    pass::FunctionPass,
+    pass::{FunctionPass, lir_body},
 };
 
 pub struct GlobalCodeMotion;
@@ -20,12 +19,12 @@ fn rpo_cfg(graph: &LirGraph) -> Vec<CFGNodeRef> {
             return;
         };
 
-        if !visited.insert(node, ()).is_none() {
+        if visited.insert(node, ()).is_some() {
             return;
         }
 
         for out in node.outputs(graph) {
-            rpo_cfg(out.node, graph, visited, rpo);
+            rpo_cfg(*out, graph, visited, rpo);
         }
 
         rpo.push(cfg);
@@ -39,17 +38,9 @@ fn rpo_cfg(graph: &LirGraph) -> Vec<CFGNodeRef> {
 }
 
 impl FunctionPass for GlobalCodeMotion {
-    fn apply_function(module: &mut Module, func: FunctionHandle) {
-        let Some(func) = module.get_function(func) else {
-            return;
-        };
+    fn apply_function(&mut self, module: &mut Module, func: FunctionHandle) {
+        let body = lir_body(module, func);
 
-        let FunctionBody::Lir(ref body) = func.body else {
-            panic!("GlobalCodeMotion requires Lir");
-        };
-
-        for cfg in rpo_cfg(body).iter().rev() {
-            
-        }
+        for cfg in rpo_cfg(body).iter().rev() {}
     }
 }

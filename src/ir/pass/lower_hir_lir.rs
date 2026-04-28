@@ -9,7 +9,7 @@ pub struct LowerHirLirPass;
 struct AnalysisFrame {}
 
 impl FunctionPass for LowerHirLirPass {
-    fn apply_function(module: &mut Module, func: FunctionHandle) {
+    fn apply_function(&mut self, module: &mut Module, func: FunctionHandle) {
         let func = module.get_function_mut(func).unwrap();
 
         let body = match &func.body {

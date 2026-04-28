@@ -15,7 +15,7 @@ pub struct VirtualRegister(pub u32);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SpillSlot(pub u32);
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum NodeKind {
     Start,
     Stop,
@@ -47,17 +47,11 @@ pub struct NodeUse {
     pub out_idx: usize,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct NodeDef {
-    pub node: NodeRef,
-    pub in_idx: usize,
-}
-
 #[derive(Debug)]
 pub struct Node {
     kind: NodeKind,
     inputs: SmallVec<[Option<NodeUse>; 4]>,
-    outputs: SmallVec<[(OptType, SmallVec<[NodeDef; 4]>); 2]>,
+    outputs: SmallVec<[(OptType, SmallVec<[NodeRef; 4]>); 2]>,
 }
 
 impl Node {
@@ -73,6 +67,14 @@ impl Node {
 
     fn n_outs(&self) -> usize {
         self.outputs.len()
+    }
+
+    fn inputs(&self) -> impl Iterator<Item = &Option<NodeUse>> {
+        self.inputs.iter()
+    }
+
+    fn users(&self) -> impl Iterator<Item = &NodeRef> {
+        self.outputs.iter().flat_map(|f| f.1.iter())
     }
 }
 
@@ -99,15 +101,15 @@ pub trait NodeRefLike: Copy {
     }
 
     fn inputs<'a>(&self, graph: &'a LirGraph) -> impl Iterator<Item = &'a Option<NodeUse>> {
-        graph.get_node(self.underlying_ref()).inputs.iter()
+        graph.get_node(self.underlying_ref()).inputs()
     }
 
-    fn outputs<'a>(&self, graph: &'a LirGraph) -> impl Iterator<Item = &'a NodeDef> {
-        graph
-            .get_node(self.underlying_ref())
-            .outputs
-            .iter()
-            .flat_map(|f| f.1.iter())
+    fn users<'a>(&self, graph: &'a LirGraph) -> impl Iterator<Item = &'a NodeRef> {
+        graph.get_node(self.underlying_ref()).users()
+    }
+
+    fn kind(&self, graph: &LirGraph) -> NodeKind {
+        graph.get_node(self.underlying_ref()).kind
     }
 }
 
@@ -116,7 +118,7 @@ impl NodeRefLike for NodeRef {
         self
     }
 
-    fn do_cast(other: NodeRef, graph: &LirGraph) -> Option<Self> {
+    fn do_cast(other: NodeRef, _graph: &LirGraph) -> Option<Self> {
         Some(other)
     }
 }
