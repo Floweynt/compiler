@@ -23,7 +23,7 @@ fn rpo_cfg(graph: &LirGraph) -> Vec<CFGNodeRef> {
             return;
         }
 
-        for out in node.outputs(graph) {
+        for out in node.users(graph) {
             rpo_cfg(*out, graph, visited, rpo);
         }
 

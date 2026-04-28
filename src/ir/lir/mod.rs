@@ -1,3 +1,3 @@
 pub mod code;
-mod types;
 mod peeps;
+mod types;
