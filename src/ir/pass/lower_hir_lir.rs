@@ -1,8 +1,12 @@
 use crate::ir::{
-    FunctionHandle, Module, function::FunctionBody, pass::FunctionPass,
+    FunctionHandle, Module,
+    function::FunctionBody,
+    pass::{FunctionPass, dominator::DominatorTree},
 };
 
 pub struct LowerHirLirPass;
+
+struct AnalysisFrame {}
 
 impl FunctionPass for LowerHirLirPass {
     fn apply_function(module: &mut Module, func: FunctionHandle) {
@@ -10,9 +14,10 @@ impl FunctionPass for LowerHirLirPass {
 
         let body = match &func.body {
             FunctionBody::Hir(body) => body,
-            FunctionBody::Lir() => panic!("can't perform LowerHirLirPass on LIR Function"),
+            FunctionBody::Lir(_) => panic!("can't perform LowerHirLirPass on LIR Function"),
         };
 
-        let ssa = super::ssa::build_ssa(body);
+        let dom_tree = DominatorTree::make_dominator_tree(body);
+        // let ssa = super::ssa::build_ssa(body);
     }
 }

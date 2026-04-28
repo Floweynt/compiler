@@ -1,9 +1,9 @@
-use crate::ir::{SymbolHandle, hir::code::HirFunctionBody, types::ValueType};
+use crate::ir::{SymbolHandle, hir::code::HirFunctionBody, lir::code::LirGraph, types::ValueType};
 
 #[derive(Debug)]
 pub enum FunctionBody {
     Hir(HirFunctionBody),
-    Lir(),
+    Lir(LirGraph),
 }
 
 #[derive(Debug)]

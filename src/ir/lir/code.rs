@@ -1,88 +1,193 @@
-#![allow(non_camel_case_types)] //because you smell <3
+use slotmap::{SlotMap, new_key_type};
 
-use slotmap::{SlotMap, SecondaryMap, new_key_type};
 use smallvec::SmallVec;
-use malachite::Integer;
 
-use crate::ir::{function::Function, lir::types::OptType};
+use crate::ir::{
+    function::Function,
+    lir::{peeps::Idealize, types::OptType},
+};
 
 new_key_type! { pub struct NodeRef; }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct virtual_register(pub u32);
+pub struct VirtualRegister(pub u32);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct spill_slot(pub u32);
+pub struct SpillSlot(pub u32);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum binary_operation_type {
-    Add, Sub, Mul, Div, Mod, BitAnd, BitOr,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum unary_operation_type {
-    Neg, BitNot
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum comparator_type {
-    Equal, NotEqual, GreaterThan, LessThan, GreaterEqual, LessEqual,
-}
+#[derive(Debug)]
 pub enum NodeKind {
     Start,
     Stop,
-    Const(Integer),
-    Copy,
-    binary_operation(binary_operation_type),
-    unary_operation(unary_operation_type),
-    sign_extend,
-    zero_extend,
-    comparator(comparator_type),
-    memory_store,
-    memory_load,
-    load_spill(spill_slot),
-    store_spill(spill_slot),
-    Jump,
-    Branch,
-    Call {
-        arity: usize
-    },
+    Call { arity: usize },
+
+    // bin ops
+    Add,
+    Sub,
+    SMul,
+    UMul,
+    SDivMod,
+    UDivMod,
+
     Phi,
+
+    Ret,
+
+    // control
+    If,
+    CProj,
+    Merge,
+
+    Nil,
 }
 
-struct NodeUse {
-    node: NodeRef,
-    out_idx: usize,
+#[derive(Debug, Clone, Copy)]
+pub struct NodeUse {
+    pub node: NodeRef,
+    pub out_idx: usize,
 }
 
-struct NodeDef {
-    node: NodeRef,
-    in_idx: usize,
+#[derive(Debug, Clone, Copy)]
+pub struct NodeDef {
+    pub node: NodeRef,
+    pub in_idx: usize,
 }
 
-struct Node {
+#[derive(Debug)]
+pub struct Node {
     kind: NodeKind,
-    inputs: SmallVec<[NodeUse; 4]>,
-    outputs: SmallVec<[SmallVec<[NodeDef; 4]>; 2]>,
-    ty: SmallVec<[OptType; 2]>,
-    virtual_register: Option<virtual_register>,
+    inputs: SmallVec<[Option<NodeUse>; 4]>,
+    outputs: SmallVec<[(OptType, SmallVec<[NodeDef; 4]>); 2]>,
 }
 
 impl Node {
+    fn add_in(&mut self, graph: &mut LirGraph, node: NodeUse) {
+        self.add_nullable_in(graph, Some(node));
+    }
+
+    fn add_nullable_in(&mut self, graph: &mut LirGraph, node: Option<NodeUse>) {}
+
     fn add_out(&mut self, ty: OptType) {
-        self.outputs.push(SmallVec::default());
-        self.ty.push(ty);
+        self.outputs.push((ty, SmallVec::default()));
+    }
+
+    fn n_outs(&self) -> usize {
+        self.outputs.len()
     }
 }
 
-pub struct LirGraph {
-    nodes: SlotMap<NodeRef, Node>,
-    start_node: NodeRef,
-    stop_node: NodeRef,
+pub trait NodeRefLike: Copy {
+    fn do_cast(other: NodeRef, graph: &LirGraph) -> Option<Self>;
 
-    define_virtual_register: SecondaryMap<NodeRef, virtual_register>,
-    next_virtual_register: u32,
-    next_spill_slot: u32,
+    fn underlying_ref(self) -> NodeRef;
+
+    #[inline(always)]
+    fn cast<U: NodeRefLike>(other: U, graph: &LirGraph) -> Option<Self> {
+        Self::do_cast(other.underlying_ref(), graph)
+    }
+
+    #[inline(always)]
+    fn is<U: NodeRefLike>(other: U, graph: &LirGraph) -> bool {
+        Self::cast(other, graph).is_some()
+    }
+
+    fn out(&self, ind: usize) -> NodeUse {
+        NodeUse {
+            node: self.underlying_ref(),
+            out_idx: ind,
+        }
+    }
+
+    fn inputs<'a>(&self, graph: &'a LirGraph) -> impl Iterator<Item = &'a Option<NodeUse>> {
+        graph.get_node(self.underlying_ref()).inputs.iter()
+    }
+
+    fn outputs<'a>(&self, graph: &'a LirGraph) -> impl Iterator<Item = &'a NodeDef> {
+        graph
+            .get_node(self.underlying_ref())
+            .outputs
+            .iter()
+            .flat_map(|f| f.1.iter())
+    }
+}
+
+impl NodeRefLike for NodeRef {
+    fn underlying_ref(self) -> NodeRef {
+        self
+    }
+
+    fn do_cast(other: NodeRef, graph: &LirGraph) -> Option<Self> {
+        Some(other)
+    }
+}
+
+macro_rules! define_struct {
+    ($name: ident, $($pat:pat_param)|+ $(,)?) => {
+        #[derive(Clone, Copy, Debug)]
+        #[repr(transparent)]
+        pub struct $name(NodeRef);
+
+        impl NodeRefLike for $name {
+            fn do_cast(other: NodeRef, graph: &LirGraph) -> Option<Self> {
+                match graph.get_node(other).kind {
+                    $($pat)|+ => Some(Self(other)),
+                    // TODO: add patterns in macro parameters
+                    _ => None
+                }
+            }
+
+            fn underlying_ref(self) -> NodeRef {
+                self.0
+            }
+        }
+    };
+}
+
+define_struct!(StartNodeRef, NodeKind::Start);
+define_struct!(StopNodeRef, NodeKind::Stop);
+define_struct!(PhiNodeRef, NodeKind::Phi);
+define_struct!(IfNodeRef, NodeKind::If);
+define_struct!(
+    CFGNodeRef,
+    NodeKind::Start
+        | NodeKind::Stop
+        | NodeKind::Ret
+        | NodeKind::If
+        | NodeKind::CProj
+        | NodeKind::Merge
+);
+
+impl IfNodeRef {
+    fn out_true(self) -> NodeUse {
+        self.out(0)
+    }
+
+    fn out_false(self) -> NodeUse {
+        self.out(1)
+    }
+}
+
+define_struct!(MergeNodeRef, NodeKind::Merge);
+
+impl StartNodeRef {
+    pub fn out_arg(&self, idx: usize) -> NodeUse {
+        self.out(idx + 2)
+    }
+
+    pub fn out_ctrl(&self) -> NodeUse {
+        self.out(0)
+    }
+
+    pub fn out_mem(&self) -> NodeUse {
+        self.out(1)
+    }
+}
+
+#[derive(Debug)]
+pub struct LirGraph {
+    pub nodes: SlotMap<NodeRef, Node>,
+    start_node: StartNodeRef,
+    stop_node: StopNodeRef,
 }
 
 impl LirGraph {
@@ -91,8 +196,6 @@ impl LirGraph {
             kind: NodeKind::Start,
             inputs: Default::default(),
             outputs: Default::default(),
-            ty: Default::default(),
-            virtual_register: None,
         };
 
         start.add_out(OptType::CtrlTop);
@@ -109,60 +212,159 @@ impl LirGraph {
             kind: NodeKind::Stop,
             inputs: Default::default(),
             outputs: Default::default(),
-            ty: Default::default(),
-            virtual_register: None,
         });
 
         LirGraph {
             nodes,
-            start_node,
-            stop_node,
-            define_virtual_register: SecondaryMap::new(),
-            next_virtual_register: 0,
-            next_spill_slot: 0,
+            start_node: StartNodeRef(start_node),
+            stop_node: StopNodeRef(stop_node),
         }
     }
 
-    pub fn new_spill_slot(&mut self) -> spill_slot {
-        let spill = spill_slot(self.next_spill_slot);
-        self.next_spill_slot += 1;
-        return spill;
+    pub fn arg(&self, arg: usize) -> Option<NodeUse> {
+        Some(self.start_node.out_arg(arg))
     }
 
-    pub fn new_virtual_register(&mut self) -> virtual_register {
-        let vreg = virtual_register(self.next_virtual_register);
-        self.next_virtual_register += 1;
-        return vreg;
+    pub fn get_node(&self, node: NodeRef) -> &Node {
+        self.nodes.get(node).unwrap()
     }
 
-    pub fn set_virtual_register(&mut self, node: NodeRef, virtual_register: virtual_register) {
-        if let Some(n) = self.nodes.get_mut(node) {
-            n.virtual_register = Some(virtual_register);
-        }
-        self.define_virtual_register.insert(node, virtual_register);
+    pub fn make_phi(&mut self, merge: MergeNodeRef, ty: OptType) -> (PhiNodeRef, NodeUse) {
+        let node = {
+            let mut n = Node {
+                kind: NodeKind::Phi,
+                inputs: Default::default(),
+                outputs: Default::default(),
+            };
+
+            n.add_out(ty);
+            n.add_in(self, merge.out(0));
+
+            n
+        };
+
+        let node = PhiNodeRef(self.nodes.insert(node));
+
+        (node, node.out(0))
     }
 
-    pub fn get_virtual_register(&self, node: NodeRef) -> Option<virtual_register> {
-        match self.nodes.get(node) {
-            Some(n) => n.virtual_register,
-            None => return None,
-        }
+    pub fn use_type(&self, node: NodeUse) -> OptType {
+        self.get_node(node.node).outputs[node.out_idx].0.clone()
     }
 
-    pub fn add_node(&mut self, kind: NodeKind) -> NodeRef {
-        self.nodes.insert(Node {
-            kind,
-            inputs: Default::default(),
-            outputs: Default::default(),
-            ty: Default::default(),
-            virtual_register: None,
-
-        })
-    }
-    pub fn start_node(&self) -> NodeRef {
+    pub fn start_node(&self) -> StartNodeRef {
         self.start_node
     }
-    pub fn stop_node(&self) -> NodeRef {
+
+    pub fn stop_node(&self) -> StopNodeRef {
         self.stop_node
+    }
+
+    fn make_binop(&mut self, lhs: NodeUse, rhs: NodeUse, k: NodeKind, out_ind: usize) -> NodeUse {
+        let node = {
+            let mut n = Node {
+                kind: k,
+                inputs: Default::default(),
+                outputs: Default::default(),
+            };
+
+            n.add_out(OptType::Bottom);
+            n.add_nullable_in(self, None);
+            n.add_in(self, lhs);
+            n.add_in(self, rhs);
+
+            n
+        };
+
+        let node = self.nodes.insert(node);
+
+        Idealize::rewrite(node.out(out_ind), self)
+    }
+
+    pub fn make_add(&mut self, lhs: NodeUse, rhs: NodeUse) -> NodeUse {
+        self.make_binop(lhs, rhs, NodeKind::Add, 0)
+    }
+
+    pub fn make_sub(&mut self, lhs: NodeUse, rhs: NodeUse) -> NodeUse {
+        self.make_binop(lhs, rhs, NodeKind::Sub, 0)
+    }
+
+    pub fn make_smul(&mut self, lhs: NodeUse, rhs: NodeUse) -> NodeUse {
+        self.make_binop(lhs, rhs, NodeKind::SMul, 0)
+    }
+
+    pub fn make_sdiv(&mut self, lhs: NodeUse, rhs: NodeUse) -> NodeUse {
+        self.make_binop(lhs, rhs, NodeKind::SDivMod, 0)
+    }
+
+    pub fn make_smod(&mut self, lhs: NodeUse, rhs: NodeUse) -> NodeUse {
+        self.make_binop(lhs, rhs, NodeKind::SDivMod, 1)
+    }
+
+    pub fn make_umul(&mut self, lhs: NodeUse, rhs: NodeUse) -> NodeUse {
+        self.make_binop(lhs, rhs, NodeKind::UMul, 0)
+    }
+
+    pub fn make_udiv(&mut self, lhs: NodeUse, rhs: NodeUse) -> NodeUse {
+        self.make_binop(lhs, rhs, NodeKind::UDivMod, 0)
+    }
+
+    pub fn make_umod(&mut self, lhs: NodeUse, rhs: NodeUse) -> NodeUse {
+        self.make_binop(lhs, rhs, NodeKind::UDivMod, 1)
+    }
+
+    pub fn make_if(&mut self, ctrl: NodeUse, pred: NodeUse) -> (NodeUse, NodeUse) {
+        let node = {
+            let mut n = Node {
+                kind: NodeKind::If,
+                inputs: Default::default(),
+                outputs: Default::default(),
+            };
+
+            n.add_out(OptType::CtrlTop);
+            n.add_out(OptType::CtrlTop);
+            n.add_in(self, ctrl);
+            n.add_in(self, pred);
+
+            n
+        };
+
+        let node = IfNodeRef(self.nodes.insert(node));
+
+        let proj_true = {
+            let mut n = Node {
+                kind: NodeKind::CProj,
+                inputs: Default::default(),
+                outputs: Default::default(),
+            };
+
+            n.add_out(OptType::CtrlTop);
+            n.add_in(self, node.out_true());
+
+            n
+        };
+
+        let proj_true = self.nodes.insert(proj_true).out(0);
+
+        let proj_false = {
+            let mut n = Node {
+                kind: NodeKind::CProj,
+                inputs: Default::default(),
+                outputs: Default::default(),
+            };
+
+            n.add_out(OptType::CtrlTop);
+            n.add_in(self, node.out_false());
+
+            n
+        };
+
+        let proj_false = self.nodes.insert(proj_false).out(0);
+
+        (proj_true, proj_false)
+    }
+
+    pub fn remove(&mut self, node: NodeRef) {
+        todo!()
     }
 }

@@ -139,16 +139,17 @@ impl HirFunctionBody {
     }
 
     pub fn define_bb(&mut self, name: String) -> Result<Label, Label> {
-        self.bb.define(name.clone(), || BasicBlock {
-            name,
-            body: Vec::new(),
-            terminator: BlockTerminator::Unreachable,
-        }).map(|label| {
-            if self.entry.is_none() {
-                self.entry = Some(label);
-            }
-            return label
-        })
+        self.bb
+            .define(name.clone(), || BasicBlock {
+                name,
+                body: Vec::new(),
+                terminator: BlockTerminator::Unreachable,
+            })
+            .inspect(|&label| {
+                if self.entry.is_none() {
+                    self.entry = Some(label);
+                }
+            })
     }
 
     pub fn define_bb_unnamed(&mut self) -> Label {
@@ -157,6 +158,14 @@ impl HirFunctionBody {
             body: Vec::new(),
             terminator: BlockTerminator::Unreachable,
         })
+    }
+
+    pub fn bb(&self, label: Label) -> Option<&BasicBlock> {
+        self.bb.by_key(label)
+    }
+
+    pub fn bb_unchecked(&self, label: Label) -> &BasicBlock {
+        self.bb(label).unwrap()
     }
 
     pub fn bb_mut(&mut self, label: Label) -> Option<&mut BasicBlock> {

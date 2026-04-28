@@ -21,7 +21,7 @@ pub enum ValueType {
     F64,
     Struct(StructHandle),
     Ptr,
-    Bot
+    Bot,
 }
 
 pub enum AbstractMachineType {}
