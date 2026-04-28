@@ -9,6 +9,54 @@ pub struct DominatorTree {
     pub graph: SecondaryMap<Label, Label>,
 }
 
+/// Compute predecessor lists for each block in a function body.
+pub fn compute_predecessors(body: &HirFunctionBody) -> SecondaryMap<Label, Vec<Label>> {
+    let mut predecessors = SecondaryMap::<Label, Vec<Label>>::new();
+
+    for (label, _) in body.blocks() {
+        predecessors.insert(label, Vec::new());
+    }
+
+    for (source, block) in body.blocks() {
+        for destination in block.successors() {
+            predecessors.get_mut(destination).unwrap().push(source);
+        }
+    }
+
+    predecessors
+}
+
+/// Compute dominance frontier (DF) for every block.
+///
+/// This follows Cooper et al. (2001, p. 8), figure 5, and is used by Cytron-style
+/// phi placement.
+pub fn compute_dominance_frontier(
+    body: &HirFunctionBody,
+    idom: &SecondaryMap<Label, Label>,
+    predecessors: &SecondaryMap<Label, Vec<Label>>,
+) -> SecondaryMap<Label, Vec<Label>> {
+    let mut frontier = SecondaryMap::<Label, Vec<Label>>::new();
+    for (label, _) in body.blocks() {
+        frontier.insert(label, Vec::new());
+    }
+
+    for (block, _) in body.blocks() {
+        if predecessors.get(block).unwrap().len() <= 1 {
+            continue;
+        }
+
+        for predecessor in predecessors.get(block).unwrap() {
+            let mut runner = *predecessor;
+            while runner != *idom.get(block).unwrap() {
+                frontier.get_mut(runner).unwrap().push(block);
+                runner = *idom.get(runner).unwrap();
+            }
+        }
+    }
+
+    frontier
+}
+
 impl DominatorTree {
     pub fn make_dominator_tree(body: &HirFunctionBody) -> Self {
         //label to usize index mapping

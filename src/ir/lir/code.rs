@@ -1,3 +1,4 @@
+use malachite::Integer;
 use slotmap::{SlotMap, new_key_type};
 
 use smallvec::SmallVec;
@@ -21,6 +22,8 @@ pub enum NodeKind {
     Stop,
     Call { arity: usize },
 
+    Const { val: Integer },
+
     // bin ops
     Add,
     Sub,
@@ -28,6 +31,20 @@ pub enum NodeKind {
     UMul,
     SDivMod,
     UDivMod,
+    BitAnd, // i don't see the point of all this; we're just repeating all the enum kinds from hir
+    BitOr,
+    BitXor,
+    CmpEq,
+    CmpNe,
+    CmpGt,
+    CmpLt,
+    CmpGe,
+    CmpLe,
+
+    // unops
+    BitNot,
+    SExt,
+    ZExt,
 
     Phi,
 
@@ -65,7 +82,9 @@ impl Node {
         self.add_nullable_in(graph, Some(node));
     }
 
-    fn add_nullable_in(&mut self, graph: &mut LirGraph, node: Option<NodeUse>) {}
+    fn add_nullable_in(&mut self, graph: &mut LirGraph, node: Option<NodeUse>) {
+        todo!()
+    }
 
     fn add_out(&mut self, ty: OptType) {
         self.outputs.push((ty, SmallVec::default()));
@@ -167,6 +186,7 @@ impl IfNodeRef {
     }
 }
 
+// what's the point of a merge node? just make the phi node have 2+ inputs? where's constructor?
 define_struct!(MergeNodeRef, NodeKind::Merge);
 
 impl StartNodeRef {
@@ -191,6 +211,7 @@ pub struct LirGraph {
 }
 
 impl LirGraph {
+    /// Create a barebones graph with only the start and stop nodes.
     pub fn make_graph(func: &Function) -> LirGraph {
         let mut start = Node {
             kind: NodeKind::Start,
@@ -229,6 +250,7 @@ impl LirGraph {
         self.nodes.get(node).unwrap()
     }
 
+    // idk what i'm supposed to do with this...
     pub fn make_phi(&mut self, merge: MergeNodeRef, ty: OptType) -> (PhiNodeRef, NodeUse) {
         let node = {
             let mut n = Node {
@@ -260,6 +282,16 @@ impl LirGraph {
         self.stop_node
     }
 
+    pub fn make_const(&mut self, val: Integer) -> NodeUse {
+        let node = Node {
+            kind: NodeKind::Const { val },
+            inputs: Default::default(),
+            outputs: Default::default(),
+        };
+
+        self.nodes.insert(node).out(0)
+    }
+
     fn make_binop(&mut self, lhs: NodeUse, rhs: NodeUse, k: NodeKind, out_ind: usize) -> NodeUse {
         let node = {
             let mut n = Node {
@@ -275,6 +307,27 @@ impl LirGraph {
 
             n
         };
+
+        let node = self.nodes.insert(node);
+
+        Idealize::rewrite(node.out(out_ind), self)
+    }
+
+    fn make_unop(&mut self, val: NodeUse, k: NodeKind, out_ind: usize) -> NodeUse {
+        let node = {
+            let mut n = Node {
+                kind: k,
+                inputs: Default::default(),
+                outputs: Default::default(),
+            };
+
+            n.add_out(OptType::Bottom);
+            n.add_nullable_in(self, None);
+            n.add_in(self, val);
+
+            n
+        };
+
 
         let node = self.nodes.insert(node);
 
@@ -311,6 +364,50 @@ impl LirGraph {
 
     pub fn make_umod(&mut self, lhs: NodeUse, rhs: NodeUse) -> NodeUse {
         self.make_binop(lhs, rhs, NodeKind::UDivMod, 1)
+    }
+
+    pub fn make_bit_and(&mut self, lhs: NodeUse, rhs: NodeUse) -> NodeUse {
+        self.make_binop(lhs, rhs, NodeKind::BitAnd, 0)
+    }
+
+    pub fn make_bit_or(&mut self, lhs: NodeUse, rhs: NodeUse) -> NodeUse {
+        self.make_binop(lhs, rhs, NodeKind::BitOr, 0)
+    }
+
+    pub fn make_bit_not(&mut self, val: NodeUse) -> NodeUse {
+        self.make_unop(val, NodeKind::BitNot, 0)
+    }
+
+    pub fn make_sext(&mut self, val: NodeUse) -> NodeUse {
+        self.make_unop(val, NodeKind::SExt, 0)
+    }
+
+    pub fn make_zext(&mut self, val: NodeUse) -> NodeUse {
+        self.make_unop(val, NodeKind::ZExt, 0)
+    }
+
+    pub fn make_cmp_eq(&mut self, lhs: NodeUse, rhs: NodeUse) -> NodeUse {
+        self.make_binop(lhs, rhs, NodeKind::CmpEq, 0)
+    }
+
+    pub fn make_cmp_ne(&mut self, lhs: NodeUse, rhs: NodeUse) -> NodeUse {
+        self.make_binop(lhs, rhs, NodeKind::CmpNe, 0)
+    }
+
+    pub fn make_cmp_gt(&mut self, lhs: NodeUse, rhs: NodeUse) -> NodeUse {
+        self.make_binop(lhs, rhs, NodeKind::CmpGt, 0)
+    }
+
+    pub fn make_cmp_lt(&mut self, lhs: NodeUse, rhs: NodeUse) -> NodeUse {
+        self.make_binop(lhs, rhs, NodeKind::CmpLt, 0)
+    }
+
+    pub fn make_cmp_ge(&mut self, lhs: NodeUse, rhs: NodeUse) -> NodeUse {
+        self.make_binop(lhs, rhs, NodeKind::CmpGe, 0)
+    }
+
+    pub fn make_cmp_le(&mut self, lhs: NodeUse, rhs: NodeUse) -> NodeUse {
+        self.make_binop(lhs, rhs, NodeKind::CmpLe, 0)
     }
 
     pub fn make_if(&mut self, ctrl: NodeUse, pred: NodeUse) -> (NodeUse, NodeUse) {

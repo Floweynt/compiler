@@ -5,6 +5,7 @@ use crate::ir::{
 mod dce;
 mod dominator;
 mod lower_hir_lir;
+mod lower_hir_son;
 mod sched;
 
 pub use lower_hir_lir::*;
@@ -44,5 +45,4 @@ impl<T: FunctionPass> Pass for T {
     }
 }
 
-pub mod dominator;
 pub mod ssa;

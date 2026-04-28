@@ -87,6 +87,10 @@ impl BasicBlock {
         self.body.push(code);
     }
 
+    pub fn terminator(&self) -> &BlockTerminator {
+        &self.terminator
+    }
+
     pub fn set_terminator(&mut self, terminator: BlockTerminator) {
         self.terminator = terminator;
     }
