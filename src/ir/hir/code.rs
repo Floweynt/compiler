@@ -61,7 +61,7 @@ pub enum HirOpc {
 
 #[derive(Debug)]
 pub struct HirInstruction {
-    opc: HirOpc,
+    pub opc: HirOpc,
     ty: ValueType,
 }
 
@@ -79,8 +79,16 @@ pub struct BasicBlock {
 }
 
 impl BasicBlock {
+    pub fn body(&self) -> impl Iterator<Item = &HirInstruction> {
+        self.body.iter()
+    }
+
     pub fn add_insn(&mut self, code: HirInstruction) {
         self.body.push(code);
+    }
+
+    pub fn terminator(&self) -> &BlockTerminator {
+        &self.terminator
     }
 
     pub fn set_terminator(&mut self, terminator: BlockTerminator) {
@@ -101,7 +109,7 @@ pub struct HirLocal {
 #[derive(Debug)]
 pub struct HirFunctionBody {
     lvt: NamedContainer<LvtRef, HirLocal>,
-    bb: NamedContainer<Label, BasicBlock>,
+    pub(crate) bb: NamedContainer<Label, BasicBlock>,
     entry: Option<Label>,
 }
 
@@ -112,6 +120,10 @@ impl HirFunctionBody {
             bb: NamedContainer::new(),
             entry: None,
         }
+    }
+
+    pub fn lvt(&self) -> impl Iterator<Item = (LvtRef, &HirLocal)> {
+        self.lvt.iter()
     }
 
     pub fn blocks(&self) -> impl Iterator<Item = (Label, &BasicBlock)> {

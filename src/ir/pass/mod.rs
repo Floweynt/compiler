@@ -6,6 +6,7 @@ mod dce;
 mod dominator;
 mod dump_graph;
 mod lower_hir_lir;
+mod lower_hir_son;
 mod sched;
 
 pub use dump_graph::*;
@@ -45,3 +46,5 @@ impl<T: FunctionPass> Pass for T {
         }
     }
 }
+
+pub mod ssa;

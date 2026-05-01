@@ -1,7 +1,7 @@
 use crate::ir::{
     FunctionHandle, Module,
     function::FunctionBody,
-    pass::{FunctionPass, dominator::DominatorTree},
+    pass::{FunctionPass, lower_hir_son::lower_hir_to_son, ssa::build_ssa},
 };
 
 pub struct LowerHirLirPass;
@@ -17,6 +17,7 @@ impl FunctionPass for LowerHirLirPass {
             FunctionBody::Lir(_) => panic!("can't perform LowerHirLirPass on LIR Function"),
         };
 
-        let dom_tree = DominatorTree::make_dominator_tree(body);
+        let ssa = build_ssa(body);
+        let graph = lower_hir_to_son(func, body, &ssa);
     }
 }
