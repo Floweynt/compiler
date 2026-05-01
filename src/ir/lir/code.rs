@@ -22,7 +22,7 @@ pub enum NodeKind {
     Stop,
     Call { arity: usize },
 
-    Const { val: Integer },
+    Const,// { val: Integer },
 
     // bin ops
     Add,
@@ -286,7 +286,7 @@ impl LirGraph {
 
     pub fn make_const(&mut self, val: Integer) -> NodeUse {
         let node = Node {
-            kind: NodeKind::Const { val },
+            kind: NodeKind::Const,// { val },
             inputs: Default::default(),
             outputs: Default::default(),
         };
